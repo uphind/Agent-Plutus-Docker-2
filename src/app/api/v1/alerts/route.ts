@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { validateApiKey, isAuthError } from "@/lib/auth";
+import { getOrgId } from "@/lib/org";
 
 interface Alert {
   type: "over_budget" | "budget_warning" | "anomaly" | "inactive_user";
@@ -14,9 +14,8 @@ interface Alert {
   threshold?: number;
 }
 
-export async function GET(request: NextRequest) {
-  const auth = await validateApiKey(request);
-  if (isAuthError(auth)) return auth;
+export async function GET() {
+  const orgId = await getOrgId();
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -25,7 +24,7 @@ export async function GET(request: NextRequest) {
 
   // Department budget alerts
   const depts = await prisma.department.findMany({
-    where: { orgId: auth.orgId, monthlyBudget: { not: null } },
+    where: { orgId: orgId, monthlyBudget: { not: null } },
   });
 
   const deptSpend = await prisma.$queryRaw<
@@ -33,7 +32,7 @@ export async function GET(request: NextRequest) {
   >`
     SELECT u.department_id, COALESCE(SUM(ur.cost_usd), 0)::float AS total_cost
     FROM usage_records ur JOIN org_users u ON ur.user_id = u.id
-    WHERE ur.org_id = ${auth.orgId} AND ur.date >= ${monthStart} AND u.department_id IS NOT NULL
+    WHERE ur.org_id = ${orgId} AND ur.date >= ${monthStart} AND u.department_id IS NOT NULL
     GROUP BY u.department_id
   `;
   const deptSpendMap = new Map(deptSpend.map((d) => [d.department_id, d.total_cost]));
@@ -64,7 +63,7 @@ export async function GET(request: NextRequest) {
 
   // Team budget alerts
   const teams = await prisma.team.findMany({
-    where: { orgId: auth.orgId, monthlyBudget: { not: null } },
+    where: { orgId: orgId, monthlyBudget: { not: null } },
     include: { department: { select: { name: true } } },
   });
 
@@ -73,7 +72,7 @@ export async function GET(request: NextRequest) {
   >`
     SELECT u.team_id, COALESCE(SUM(ur.cost_usd), 0)::float AS total_cost
     FROM usage_records ur JOIN org_users u ON ur.user_id = u.id
-    WHERE ur.org_id = ${auth.orgId} AND ur.date >= ${monthStart} AND u.team_id IS NOT NULL
+    WHERE ur.org_id = ${orgId} AND ur.date >= ${monthStart} AND u.team_id IS NOT NULL
     GROUP BY u.team_id
   `;
   const teamSpendMap = new Map(teamSpend.map((t) => [t.team_id, t.total_cost]));
@@ -110,7 +109,7 @@ export async function GET(request: NextRequest) {
            COALESCE(SUM(ur.cost_usd), 0)::float AS total_cost
     FROM org_users u
     LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.date >= ${monthStart}
-    WHERE u.org_id = ${auth.orgId} AND u.status = 'active'
+    WHERE u.org_id = ${orgId} AND u.status = 'active'
     GROUP BY u.id, u.name, u.department, u.department_id
   `;
 
@@ -146,7 +145,7 @@ export async function GET(request: NextRequest) {
     SELECT u.id AS user_id, u.name, u.email
     FROM org_users u
     LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.date >= ${thirtyDaysAgo}
-    WHERE u.org_id = ${auth.orgId} AND u.status = 'active'
+    WHERE u.org_id = ${orgId} AND u.status = 'active'
     GROUP BY u.id, u.name, u.email
     HAVING COUNT(ur.id) = 0
   `;

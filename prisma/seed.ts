@@ -1,7 +1,5 @@
 import "dotenv/config";
 import { PrismaClient } from "../src/generated/prisma/client";
-import bcryptjs from "bcryptjs";
-import { v4 as uuid } from "uuid";
 
 const prisma = new PrismaClient();
 
@@ -35,20 +33,15 @@ async function main() {
     console.log("Organization already exists:", existing.name);
     console.log("Org ID:", existing.id);
   } else {
-    const apiKey = `tk_${uuid().replace(/-/g, "")}`;
-    const apiKeyHash = await bcryptjs.hash(apiKey, 10);
-
     const org = await prisma.organization.create({
       data: {
         name: "Demo Organization",
         slug: "demo-org",
-        apiKeyHash,
       },
     });
 
     orgId = org.id;
     console.log("Organization created:", org.name);
-    console.log("API Key (save this!):", apiKey);
     console.log("Org ID:", org.id);
   }
 

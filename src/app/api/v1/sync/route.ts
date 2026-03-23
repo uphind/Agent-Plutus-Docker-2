@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { validateApiKey, isAuthError } from "@/lib/auth";
+import { getOrgId } from "@/lib/org";
 import { syncProvider, syncAllProviders } from "@/lib/sync/sync-engine";
 import { Provider } from "@/generated/prisma/client";
 
@@ -10,8 +10,7 @@ const syncSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  const auth = await validateApiKey(request);
-  if (isAuthError(auth)) return auth;
+  const orgId = await getOrgId();
 
   let body: unknown = {};
   try {
@@ -30,10 +29,10 @@ export async function POST(request: NextRequest) {
 
   try {
     if (parsed.data.provider) {
-      const result = await syncProvider(auth.orgId, parsed.data.provider);
+      const result = await syncProvider(orgId, parsed.data.provider);
       return NextResponse.json({ success: true, provider: parsed.data.provider, recordsCount: result.recordsCount });
     } else {
-      const results = await syncAllProviders(auth.orgId);
+      const results = await syncAllProviders(orgId);
       return NextResponse.json({ success: true, results });
     }
   } catch (error) {
@@ -45,11 +44,10 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await validateApiKey(request);
-  if (isAuthError(auth)) return auth;
+  const orgId = await getOrgId();
 
   const logs = await prisma.syncLog.findMany({
-    where: { orgId: auth.orgId },
+    where: { orgId },
     orderBy: { startedAt: "desc" },
     take: 50,
   });

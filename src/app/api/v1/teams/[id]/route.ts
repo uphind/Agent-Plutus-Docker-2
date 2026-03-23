@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { validateApiKey, isAuthError } from "@/lib/auth";
+import { getOrgId } from "@/lib/org";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await validateApiKey(request);
-  if (isAuthError(auth)) return auth;
+  const orgId = await getOrgId();
   const { id } = await params;
 
   const now = new Date();
@@ -18,7 +17,7 @@ export async function GET(
     include: { department: { select: { id: true, name: true } } },
   });
 
-  if (!team || team.orgId !== auth.orgId) {
+  if (!team || team.orgId !== orgId) {
     return NextResponse.json({ error: "Team not found" }, { status: 404 });
   }
 
@@ -31,7 +30,7 @@ export async function GET(
            COALESCE(SUM(ur.requests_count), 0)::bigint AS total_requests
     FROM org_users u
     LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.date >= ${monthStart}
-    WHERE u.org_id = ${auth.orgId} AND u.team_id = ${id} AND u.status = 'active'
+    WHERE u.org_id = ${orgId} AND u.team_id = ${id} AND u.status = 'active'
     GROUP BY u.id, u.name, u.email, u.job_title
     ORDER BY total_cost DESC
   `;
@@ -42,7 +41,7 @@ export async function GET(
     SELECT ur.date::text, COALESCE(SUM(ur.cost_usd), 0)::float AS total_cost
     FROM usage_records ur
     JOIN org_users u ON ur.user_id = u.id
-    WHERE ur.org_id = ${auth.orgId} AND u.team_id = ${id} AND ur.date >= ${monthStart}
+    WHERE ur.org_id = ${orgId} AND u.team_id = ${id} AND ur.date >= ${monthStart}
     GROUP BY ur.date ORDER BY ur.date
   `;
 
@@ -53,7 +52,7 @@ export async function GET(
            COALESCE(SUM(ur.input_tokens + ur.output_tokens), 0)::bigint AS total_tokens
     FROM usage_records ur
     JOIN org_users u ON ur.user_id = u.id
-    WHERE ur.org_id = ${auth.orgId} AND u.team_id = ${id} AND ur.date >= ${monthStart}
+    WHERE ur.org_id = ${orgId} AND u.team_id = ${id} AND ur.date >= ${monthStart}
     GROUP BY ur.provider ORDER BY total_cost DESC
   `;
 

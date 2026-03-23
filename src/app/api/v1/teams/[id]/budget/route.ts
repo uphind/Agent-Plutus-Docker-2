@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { validateApiKey, isAuthError } from "@/lib/auth";
+import { getOrgId } from "@/lib/org";
 
 const budgetSchema = z.object({
   monthly_budget: z.number().min(0).nullable(),
@@ -12,12 +12,11 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await validateApiKey(request);
-  if (isAuthError(auth)) return auth;
+  const orgId = await getOrgId();
   const { id } = await params;
 
   const team = await prisma.team.findUnique({ where: { id } });
-  if (!team || team.orgId !== auth.orgId) {
+  if (!team || team.orgId !== orgId) {
     return NextResponse.json({ error: "Team not found" }, { status: 404 });
   }
 

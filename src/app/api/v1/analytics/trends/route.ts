@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { validateApiKey, isAuthError } from "@/lib/auth";
+import { getOrgId } from "@/lib/org";
 
 export async function GET(request: NextRequest) {
-  const auth = await validateApiKey(request);
-  if (isAuthError(auth)) return auth;
+  const orgId = await getOrgId();
 
   const { searchParams } = new URL(request.url);
   const granularity = searchParams.get("granularity") ?? "daily";
@@ -59,7 +58,7 @@ export async function GET(request: NextRequest) {
        ${providerFilter}
      GROUP BY period, ur.model, ur.provider
      ORDER BY period ASC, total_cost DESC`,
-    auth.orgId,
+    orgId,
     startDate
   );
 
@@ -90,7 +89,7 @@ export async function GET(request: NextRequest) {
        ${providerFilter}
      GROUP BY ur.model, ur.provider
      ORDER BY total_cost DESC`,
-    auth.orgId,
+    orgId,
     startDate
   );
 
@@ -107,7 +106,7 @@ export async function GET(request: NextRequest) {
        ${providerFilter}
      GROUP BY period
      ORDER BY period ASC`,
-    auth.orgId,
+    orgId,
     startDate
   );
 
@@ -136,7 +135,7 @@ export async function GET(request: NextRequest) {
        ${providerFilter}
      GROUP BY period, ur.model, ur.provider
      ORDER BY period ASC`,
-    auth.orgId,
+    orgId,
     startDate
   );
 

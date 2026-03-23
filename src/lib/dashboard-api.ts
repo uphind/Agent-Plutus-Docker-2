@@ -1,38 +1,10 @@
 const API_BASE = "/api/v1";
 
-let cachedApiKey: string | null = null;
-
-export function setApiKey(key: string) {
-  cachedApiKey = key;
-  if (typeof window !== "undefined") {
-    localStorage.setItem("tokenear_api_key", key);
-  }
-}
-
-export function getApiKey(): string | null {
-  if (cachedApiKey) return cachedApiKey;
-  if (typeof window !== "undefined") {
-    cachedApiKey = localStorage.getItem("tokenear_api_key");
-  }
-  return cachedApiKey;
-}
-
-export function clearApiKey() {
-  cachedApiKey = null;
-  if (typeof window !== "undefined") {
-    localStorage.removeItem("tokenear_api_key");
-  }
-}
-
 async function apiFetch(path: string, options?: RequestInit) {
-  const key = getApiKey();
-  if (!key) throw new Error("No API key configured");
-
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      "X-API-Key": key,
       ...options?.headers,
     },
   });
@@ -49,11 +21,7 @@ async function apiFetch(path: string, options?: RequestInit) {
 }
 
 async function apiRaw(path: string) {
-  const key = getApiKey();
-  if (!key) throw new Error("No API key configured");
-  return fetch(`${API_BASE}${path}`, {
-    headers: { "X-API-Key": key },
-  });
+  return fetch(`${API_BASE}${path}`);
 }
 
 export const api = {
@@ -136,4 +104,12 @@ export const api = {
       body: JSON.stringify(provider ? { provider } : {}),
     }),
   getSyncLogs: () => apiFetch("/sync"),
+
+  // Settings
+  getSettings: () => apiFetch("/settings"),
+  updateSettings: (settings: { sync_interval_hours?: number }) =>
+    apiFetch("/settings", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    }),
 };

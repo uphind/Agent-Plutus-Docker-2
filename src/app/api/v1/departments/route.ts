@@ -1,16 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { validateApiKey, isAuthError } from "@/lib/auth";
+import { getOrgId } from "@/lib/org";
 
-export async function GET(request: NextRequest) {
-  const auth = await validateApiKey(request);
-  if (isAuthError(auth)) return auth;
+export async function GET() {
+  const orgId = await getOrgId();
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
   const departments = await prisma.department.findMany({
-    where: { orgId: auth.orgId },
+    where: { orgId: orgId },
     include: {
       teams: { select: { id: true, name: true, monthlyBudget: true } },
       _count: { select: { users: true } },
@@ -27,7 +26,7 @@ export async function GET(request: NextRequest) {
            COALESCE(SUM(ur.requests_count), 0)::bigint AS total_requests
     FROM usage_records ur
     JOIN org_users u ON ur.user_id = u.id
-    WHERE ur.org_id = ${auth.orgId}
+    WHERE ur.org_id = ${orgId}
       AND ur.date >= ${monthStart}
       AND u.department_id IS NOT NULL
     GROUP BY u.department_id

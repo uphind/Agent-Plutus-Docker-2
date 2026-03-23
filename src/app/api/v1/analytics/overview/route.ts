@@ -1,18 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { validateApiKey, isAuthError } from "@/lib/auth";
+import { getOrgId } from "@/lib/org";
 import { Prisma } from "@/generated/prisma/client";
 
 export async function GET(request: NextRequest) {
-  const auth = await validateApiKey(request);
-  if (isAuthError(auth)) return auth;
+  const orgId = await getOrgId();
 
   const { searchParams } = new URL(request.url);
   const days = parseInt(searchParams.get("days") ?? "30", 10);
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
 
-  const where = { orgId: auth.orgId, date: { gte: startDate } };
+  const where = { orgId: orgId, date: { gte: startDate } };
 
   // Total spend and tokens
   const totals = await prisma.usageRecord.aggregate({
@@ -48,7 +47,7 @@ export async function GET(request: NextRequest) {
         SUM(cost_usd)::float as total_cost,
         SUM(input_tokens + output_tokens)::int as total_tokens
       FROM usage_records
-      WHERE org_id = ${auth.orgId} AND date >= ${startDate}
+      WHERE org_id = ${orgId} AND date >= ${startDate}
       GROUP BY date
       ORDER BY date
     `
@@ -67,7 +66,7 @@ export async function GET(request: NextRequest) {
         SUM(ur.input_tokens + ur.output_tokens)::int as total_tokens
       FROM usage_records ur
       JOIN org_users u ON ur.user_id = u.id
-      WHERE ur.org_id = ${auth.orgId} AND ur.date >= ${startDate}
+      WHERE ur.org_id = ${orgId} AND ur.date >= ${startDate}
       GROUP BY u.id, u.name, u.email
       ORDER BY total_cost DESC
       LIMIT 10
@@ -76,12 +75,12 @@ export async function GET(request: NextRequest) {
 
   // Active users count
   const activeUsers = await prisma.orgUser.count({
-    where: { orgId: auth.orgId, status: "active" },
+    where: { orgId: orgId, status: "active" },
   });
 
   // Active providers
   const activeProviders = await prisma.providerCredential.count({
-    where: { orgId: auth.orgId, isActive: true },
+    where: { orgId: orgId, isActive: true },
   });
 
   return NextResponse.json({

@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { validateApiKey, isAuthError } from "@/lib/auth";
+import { getOrgId } from "@/lib/org";
 
 export async function GET(request: NextRequest) {
-  const auth = await validateApiKey(request);
-  if (isAuthError(auth)) return auth;
+  const orgId = await getOrgId();
 
   const { searchParams } = new URL(request.url);
   const days = parseInt(searchParams.get("days") ?? "30", 10);
@@ -24,7 +23,7 @@ export async function GET(request: NextRequest) {
            ur.input_tokens, ur.output_tokens, ur.requests_count, ur.cost_usd::float
     FROM usage_records ur
     LEFT JOIN org_users u ON ur.user_id = u.id
-    WHERE ur.org_id = ${auth.orgId} AND ur.date >= ${startDate}
+    WHERE ur.org_id = ${orgId} AND ur.date >= ${startDate}
     ORDER BY ur.date DESC, cost_usd DESC
   `;
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { validateApiKey, isAuthError } from "@/lib/auth";
+import { getOrgId } from "@/lib/org";
 import { encrypt } from "@/lib/encryption";
 import { Provider } from "@/generated/prisma/client";
 import { getAdapter } from "@/lib/providers";
@@ -14,11 +14,10 @@ const providerSchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
-  const auth = await validateApiKey(request);
-  if (isAuthError(auth)) return auth;
+  const orgId = await getOrgId();
 
   const credentials = await prisma.providerCredential.findMany({
-    where: { orgId: auth.orgId },
+    where: { orgId },
     select: {
       id: true,
       provider: true,
@@ -34,8 +33,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await validateApiKey(request);
-  if (isAuthError(auth)) return auth;
+  const orgId = await getOrgId();
 
   let body: unknown;
   try {
@@ -85,9 +83,9 @@ export async function POST(request: NextRequest) {
   const encryptedApiKey = encrypt(api_key);
 
   const credential = await prisma.providerCredential.upsert({
-    where: { orgId_provider: { orgId: auth.orgId, provider } },
+    where: { orgId_provider: { orgId, provider } },
     create: {
-      orgId: auth.orgId,
+      orgId,
       provider,
       encryptedApiKey,
       label: label ?? null,
@@ -111,8 +109,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const auth = await validateApiKey(request);
-  if (isAuthError(auth)) return auth;
+  const orgId = await getOrgId();
 
   const { searchParams } = new URL(request.url);
   const provider = searchParams.get("provider") as Provider | null;
@@ -122,7 +119,7 @@ export async function DELETE(request: NextRequest) {
   }
 
   await prisma.providerCredential.deleteMany({
-    where: { orgId: auth.orgId, provider },
+    where: { orgId, provider },
   });
 
   return NextResponse.json({ success: true });

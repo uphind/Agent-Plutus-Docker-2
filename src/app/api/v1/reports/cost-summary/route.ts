@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { validateApiKey, isAuthError } from "@/lib/auth";
+import { getOrgId } from "@/lib/org";
 
 export async function GET(request: NextRequest) {
-  const auth = await validateApiKey(request);
-  if (isAuthError(auth)) return auth;
+  const orgId = await getOrgId();
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -19,7 +18,7 @@ export async function GET(request: NextRequest) {
            COALESCE(SUM(ur.input_tokens + ur.output_tokens), 0)::bigint AS total_tokens,
            COALESCE(SUM(ur.requests_count), 0)::bigint AS total_requests
     FROM usage_records ur JOIN org_users u ON ur.user_id = u.id
-    WHERE ur.org_id = ${auth.orgId} AND ur.date >= ${monthStart}
+    WHERE ur.org_id = ${orgId} AND ur.date >= ${monthStart}
     GROUP BY u.department_id, u.department ORDER BY total_cost DESC
   `;
 
@@ -29,14 +28,14 @@ export async function GET(request: NextRequest) {
   >`
     SELECT u.department_id, COALESCE(SUM(ur.cost_usd), 0)::float AS total_cost
     FROM usage_records ur JOIN org_users u ON ur.user_id = u.id
-    WHERE ur.org_id = ${auth.orgId} AND ur.date >= ${prevMonthStart} AND ur.date < ${monthStart}
+    WHERE ur.org_id = ${orgId} AND ur.date >= ${prevMonthStart} AND ur.date < ${monthStart}
     GROUP BY u.department_id
   `;
   const prevMap = new Map(prevByDept.map((p) => [p.department_id, p.total_cost]));
 
   // Budgets
   const departments = await prisma.department.findMany({
-    where: { orgId: auth.orgId },
+    where: { orgId: orgId },
     select: { id: true, name: true, monthlyBudget: true },
   });
   const budgetMap = new Map(departments.map((d) => [d.id, d.monthlyBudget ? Number(d.monthlyBudget) : null]));
@@ -49,7 +48,7 @@ export async function GET(request: NextRequest) {
            COALESCE(SUM(ur.input_tokens + ur.output_tokens), 0)::bigint AS total_tokens,
            COALESCE(SUM(ur.requests_count), 0)::bigint AS total_requests
     FROM usage_records ur
-    WHERE ur.org_id = ${auth.orgId} AND ur.date >= ${monthStart}
+    WHERE ur.org_id = ${orgId} AND ur.date >= ${monthStart}
     GROUP BY ur.provider ORDER BY total_cost DESC
   `;
 
@@ -58,7 +57,7 @@ export async function GET(request: NextRequest) {
   >`
     SELECT ur.provider, COALESCE(SUM(ur.cost_usd), 0)::float AS total_cost
     FROM usage_records ur
-    WHERE ur.org_id = ${auth.orgId} AND ur.date >= ${prevMonthStart} AND ur.date < ${monthStart}
+    WHERE ur.org_id = ${orgId} AND ur.date >= ${prevMonthStart} AND ur.date < ${monthStart}
     GROUP BY ur.provider
   `;
   const prevProvMap = new Map(prevByProvider.map((p) => [p.provider, p.total_cost]));

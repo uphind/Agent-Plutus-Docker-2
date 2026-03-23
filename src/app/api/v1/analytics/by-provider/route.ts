@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { validateApiKey, isAuthError } from "@/lib/auth";
+import { getOrgId } from "@/lib/org";
 import { Prisma } from "@/generated/prisma/client";
 
 export async function GET(request: NextRequest) {
-  const auth = await validateApiKey(request);
-  if (isAuthError(auth)) return auth;
+  const orgId = await getOrgId();
 
   const { searchParams } = new URL(request.url);
   const days = parseInt(searchParams.get("days") ?? "30", 10);
@@ -14,7 +13,7 @@ export async function GET(request: NextRequest) {
 
   const providerBreakdown = await prisma.usageRecord.groupBy({
     by: ["provider"],
-    where: { orgId: auth.orgId, date: { gte: startDate } },
+    where: { orgId: orgId, date: { gte: startDate } },
     _sum: {
       inputTokens: true,
       outputTokens: true,
@@ -35,14 +34,14 @@ export async function GET(request: NextRequest) {
         SUM(cost_usd)::float as total_cost,
         SUM(input_tokens + output_tokens)::int as total_tokens
       FROM usage_records
-      WHERE org_id = ${auth.orgId} AND date >= ${startDate}
+      WHERE org_id = ${orgId} AND date >= ${startDate}
       GROUP BY date, provider
       ORDER BY date
     `
   );
 
   const credentials = await prisma.providerCredential.findMany({
-    where: { orgId: auth.orgId },
+    where: { orgId: orgId },
     select: {
       provider: true,
       isActive: true,

@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { validateApiKey, isAuthError } from "@/lib/auth";
+import { getOrgId } from "@/lib/org";
 
 export async function GET(request: NextRequest) {
-  const auth = await validateApiKey(request);
-  if (isAuthError(auth)) return auth;
+  const orgId = await getOrgId();
 
   const { searchParams } = new URL(request.url);
   const department = searchParams.get("department");
@@ -12,7 +11,7 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get("status") ?? "active";
   const search = searchParams.get("search");
 
-  const where: Record<string, unknown> = { orgId: auth.orgId };
+  const where: Record<string, unknown> = { orgId: orgId };
   if (department) where.department = department;
   if (team) where.team = team;
   if (status !== "all") where.status = status;
@@ -30,13 +29,13 @@ export async function GET(request: NextRequest) {
 
   const departments = await prisma.orgUser.groupBy({
     by: ["department"],
-    where: { orgId: auth.orgId, status: "active" },
+    where: { orgId: orgId, status: "active" },
     _count: true,
   });
 
   const teams = await prisma.orgUser.groupBy({
     by: ["team"],
-    where: { orgId: auth.orgId, status: "active" },
+    where: { orgId: orgId, status: "active" },
     _count: true,
   });
 

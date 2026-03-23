@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { validateApiKey, isAuthError } from "@/lib/auth";
+import { getOrgId } from "@/lib/org";
 
 const userSchema = z.object({
   email: z.string().email(),
@@ -18,8 +18,7 @@ const directorySchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  const auth = await validateApiKey(request);
-  if (isAuthError(auth)) return auth;
+  const orgId = await getOrgId();
 
   let body: unknown;
   try {
@@ -46,8 +45,8 @@ export async function POST(request: NextRequest) {
   const deptNames = new Set(users.map((u) => u.department).filter(Boolean) as string[]);
   for (const deptName of deptNames) {
     const dept = await prisma.department.upsert({
-      where: { orgId_name: { orgId: auth.orgId, name: deptName } },
-      create: { orgId: auth.orgId, name: deptName },
+      where: { orgId_name: { orgId: orgId, name: deptName } },
+      create: { orgId: orgId, name: deptName },
       update: {},
     });
     deptMap.set(deptName, dept.id);
@@ -64,8 +63,8 @@ export async function POST(request: NextRequest) {
     const deptId = deptMap.get(dept);
     if (!deptId) continue;
     const t = await prisma.team.upsert({
-      where: { orgId_departmentId_name: { orgId: auth.orgId, departmentId: deptId, name: team } },
-      create: { orgId: auth.orgId, departmentId: deptId, name: team },
+      where: { orgId_departmentId_name: { orgId: orgId, departmentId: deptId, name: team } },
+      create: { orgId: orgId, departmentId: deptId, name: team },
       update: {},
     });
     teamMap.set(key, t.id);
@@ -79,9 +78,9 @@ export async function POST(request: NextRequest) {
     const teamId = teamKey ? teamMap.get(teamKey) ?? null : null;
 
     await prisma.orgUser.upsert({
-      where: { orgId_email: { orgId: auth.orgId, email: user.email.toLowerCase() } },
+      where: { orgId_email: { orgId: orgId, email: user.email.toLowerCase() } },
       create: {
-        orgId: auth.orgId,
+        orgId: orgId,
         email: user.email.toLowerCase(),
         name: user.name,
         department: user.department ?? null,
@@ -107,7 +106,7 @@ export async function POST(request: NextRequest) {
   }
 
   const existingUsers = await prisma.orgUser.findMany({
-    where: { orgId: auth.orgId, status: "active" },
+    where: { orgId: orgId, status: "active" },
     select: { id: true, email: true },
   });
 

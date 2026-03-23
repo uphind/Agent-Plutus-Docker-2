@@ -4,26 +4,38 @@ import { ProviderAdapter, NormalizedUsageRecord } from "./types";
 const API_BASE = "https://api.anthropic.com/v1/organizations";
 
 interface AnthropicUsageBucket {
-  start_time: string;
-  end_time: string;
+  starting_at: string;
+  ending_at: string;
   results: Array<{
     model?: string;
     workspace_id?: string;
     api_key_id?: string;
-    input_tokens: number;
+    uncached_input_tokens: number;
     output_tokens: number;
-    cache_creation_input_tokens?: number;
+    cache_creation?: {
+      ephemeral_1h_input_tokens: number;
+      ephemeral_5m_input_tokens: number;
+    };
     cache_read_input_tokens?: number;
+    context_window?: string;
+    service_tier?: string;
+    inference_geo?: string;
+    server_tool_use?: { web_search_requests: number };
   }>;
 }
 
 interface AnthropicCostBucket {
-  start_time: string;
-  end_time: string;
+  starting_at: string;
+  ending_at: string;
   results: Array<{
-    workspace_id?: string;
+    amount: string;
+    cost_type?: string;
+    currency?: string;
     description?: string;
-    amount_cents: number;
+    model?: string;
+    service_tier?: string;
+    token_type?: string;
+    workspace_id?: string;
   }>;
 }
 
@@ -75,18 +87,20 @@ export const anthropicAdapter: ProviderAdapter = {
       const buckets: AnthropicUsageBucket[] = data.data ?? [];
 
       for (const bucket of buckets) {
-        const bucketDate = new Date(bucket.start_time);
+        const bucketDate = new Date(bucket.starting_at);
         for (const result of bucket.results ?? []) {
+          const cacheCreationTokens =
+            (result.cache_creation?.ephemeral_1h_input_tokens ?? 0) +
+            (result.cache_creation?.ephemeral_5m_input_tokens ?? 0);
           const cachedTokens =
-            (result.cache_read_input_tokens ?? 0) +
-            (result.cache_creation_input_tokens ?? 0);
+            (result.cache_read_input_tokens ?? 0) + cacheCreationTokens;
 
           records.push({
             provider: Provider.anthropic,
             userRef: result.api_key_id ?? null,
             model: result.model ?? null,
             date: bucketDate,
-            inputTokens: result.input_tokens ?? 0,
+            inputTokens: result.uncached_input_tokens ?? 0,
             outputTokens: result.output_tokens ?? 0,
             cachedTokens,
             requestsCount: 0,
@@ -94,6 +108,8 @@ export const anthropicAdapter: ProviderAdapter = {
             metadata: {
               workspace_id: result.workspace_id,
               api_key_id: result.api_key_id,
+              service_tier: result.service_tier,
+              context_window: result.context_window,
             },
           });
         }
@@ -116,16 +132,21 @@ export const anthropicAdapter: ProviderAdapter = {
         const costBuckets: AnthropicCostBucket[] = costData.data ?? [];
 
         for (const bucket of costBuckets) {
-          const bucketDate = new Date(bucket.start_time);
+          const bucketDate = new Date(bucket.starting_at);
           for (const result of bucket.results ?? []) {
+            // amount is a string in cents (e.g. "123.45" = $1.2345)
+            const amountCents = parseFloat(result.amount) || 0;
+            const amountUsd = amountCents / 100;
+
             const matchingRecord = records.find(
               (r) =>
                 r.date.getTime() === bucketDate.getTime() &&
                 r.model &&
-                result.description?.includes(r.model)
+                (result.model === r.model ||
+                  result.description?.includes(r.model))
             );
             if (matchingRecord) {
-              matchingRecord.costUsd += result.amount_cents / 100;
+              matchingRecord.costUsd += amountUsd;
             }
           }
         }

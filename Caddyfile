@@ -1,0 +1,9 @@
+{$DOMAIN:localhost} {
+	reverse_proxy app:3000
+
+	# TLS configuration:
+	# - DOMAIN=localhost → self-signed internal cert (dev/testing)
+	# - DOMAIN=tokenear.company.com → auto Let's Encrypt
+	# - Mount certs at /certs/ and set DOMAIN → uses custom certs
+	{$TLS_CONFIG:}
+}

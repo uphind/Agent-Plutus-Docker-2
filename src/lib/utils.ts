@@ -42,3 +42,17 @@ export const PROVIDER_COLORS: Record<string, string> = {
   cursor: "#6366F1",
   vertex: "#4285F4",
 };
+
+const MODEL_LABELS: Record<string, string> = {
+  "cursor-agent": "Cursor Agent",
+  "cursor-included": "Cursor (Included)",
+  "cursor-usage-based": "Cursor (Usage-Based)",
+};
+
+export function formatModelName(model: string): string {
+  return MODEL_LABELS[model] ?? model;
+}
+
+export function isOverageModel(model: string): boolean {
+  return model === "cursor-usage-based";
+}

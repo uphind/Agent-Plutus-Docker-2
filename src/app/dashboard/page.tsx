@@ -74,7 +74,7 @@ export default function OverviewPage() {
         <Header title="Dashboard" />
         <Card className="p-8 text-center">
           <p className="text-destructive font-medium">{error}</p>
-          <p className="text-sm text-muted-foreground mt-2">Make sure you&apos;ve configured your API key in Settings.</p>
+          <p className="text-sm text-muted-foreground mt-2">Check your database connection and try refreshing the page.</p>
         </Card>
       </div>
     );

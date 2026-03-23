@@ -7,7 +7,7 @@ import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { SkeletonTable } from "@/components/ui/skeleton";
 import { api } from "@/lib/dashboard-api";
-import { formatCurrency, formatTokens, formatNumber, PROVIDER_LABELS, PROVIDER_COLORS } from "@/lib/utils";
+import { formatCurrency, formatTokens, formatNumber, formatModelName, isOverageModel, PROVIDER_LABELS, PROVIDER_COLORS } from "@/lib/utils";
 
 interface ModelRow {
   model: string; provider: string;
@@ -80,7 +80,12 @@ export default function ModelsPage() {
                 {models.map((m, i) => (
                   <tr key={i} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
                     <td className="px-6 py-3">
-                      <span className="text-sm font-mono font-medium">{m.model || "unknown"}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-mono font-medium">{formatModelName(m.model || "unknown")}</span>
+                        {isOverageModel(m.model) && (
+                          <Badge variant="warning" className="text-[10px] px-1.5 py-0">overage</Badge>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-3">
                       <div className="flex items-center gap-2">

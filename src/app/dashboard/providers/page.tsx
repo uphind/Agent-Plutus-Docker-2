@@ -110,7 +110,7 @@ export default function ProvidersPage() {
         <Card className="p-4 border-destructive/50 bg-red-50">
           <p className="text-sm text-destructive">{error}</p>
           <p className="text-xs text-muted-foreground mt-1">
-            Make sure your Tokenear API key is set in Settings.
+            Check your database connection and try refreshing the page.
           </p>
         </Card>
       )}

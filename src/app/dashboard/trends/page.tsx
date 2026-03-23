@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs } from "@/components/ui/tabs";
 import { SkeletonCard, SkeletonTable } from "@/components/ui/skeleton";
 import { api } from "@/lib/dashboard-api";
-import { formatCurrency, formatTokens, formatNumber, PROVIDER_LABELS, PROVIDER_COLORS } from "@/lib/utils";
+import { formatCurrency, formatTokens, formatNumber, formatModelName, isOverageModel, PROVIDER_LABELS, PROVIDER_COLORS } from "@/lib/utils";
 import { TrendingUp, TrendingDown, Zap, DollarSign, Hash, Clock } from "lucide-react";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -161,7 +161,7 @@ export default function TrendsPage() {
 
   function modelLabel(provider: string, model: string): string {
     const pLabel = PROVIDER_LABELS[provider] ?? provider;
-    return `${model} (${pLabel})`;
+    return `${formatModelName(model)} (${pLabel})`;
   }
 
   function toggleModel(key: string) {
@@ -279,7 +279,7 @@ export default function TrendsPage() {
                       style={active ? { backgroundColor: color } : {}}
                     >
                       {!active && <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: color }} />}
-                      {m.model}
+                      {formatModelName(m.model)}{isOverageModel(m.model) ? " ⚠" : ""}
                       <span className="opacity-70">({PROVIDER_LABELS[m.provider] ?? m.provider})</span>
                     </button>
                   );
@@ -460,7 +460,10 @@ export default function TrendsPage() {
                           <td className="px-6 py-3">
                             <div className="flex items-center gap-2">
                               <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                              <span className="text-sm font-mono font-medium">{m.model}</span>
+                              <span className="text-sm font-mono font-medium">{formatModelName(m.model)}</span>
+                              {isOverageModel(m.model) && (
+                                <Badge variant="warning" className="text-[10px] px-1.5 py-0">overage</Badge>
+                              )}
                             </div>
                           </td>
                           <td className="px-6 py-3 text-sm">{PROVIDER_LABELS[m.provider] ?? m.provider}</td>
@@ -515,7 +518,7 @@ export default function TrendsPage() {
                         <div className="w-44 shrink-0">
                           <div className="flex items-center gap-1.5">
                             <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                            <span className="text-xs font-mono font-medium truncate">{m.model}</span>
+                            <span className="text-xs font-mono font-medium truncate">{formatModelName(m.model)}</span>
                           </div>
                           <span className="text-[10px] text-muted-foreground ml-3.5">{PROVIDER_LABELS[m.provider] ?? m.provider}</span>
                         </div>

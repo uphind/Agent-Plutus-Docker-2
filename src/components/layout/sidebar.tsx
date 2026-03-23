@@ -12,8 +12,10 @@ import {
   UsersRound,
   FileBarChart,
   TrendingUp,
+  Lightbulb,
   ChevronLeft,
   ChevronRight,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -39,6 +41,12 @@ const navSections = [
       { name: "Reports", href: "/dashboard/reports", icon: FileBarChart },
       { name: "Trends", href: "/dashboard/trends", icon: TrendingUp },
       { name: "Models", href: "/dashboard/models", icon: Boxes },
+    ],
+  },
+  {
+    label: "INSIGHTS",
+    items: [
+      { name: "Suggestions", href: "/dashboard/suggestions", icon: Lightbulb },
     ],
   },
   {
@@ -111,8 +119,19 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* Collapse toggle */}
-      <div className="border-t border-sidebar-border p-2.5">
+      {/* Sign out + collapse */}
+      <div className="border-t border-sidebar-border p-2.5 space-y-1">
+        <button
+          onClick={() => window.location.href = "/api/auth/signout"}
+          title={collapsed ? "Sign out" : undefined}
+          className={cn(
+            "flex items-center rounded-lg text-[13px] font-medium text-gray-400 hover:bg-white/5 hover:text-gray-200 transition-colors w-full",
+            collapsed ? "justify-center p-2.5" : "gap-2.5 px-3 py-2"
+          )}
+        >
+          <LogOut className="h-[18px] w-[18px] shrink-0" />
+          {!collapsed && "Sign out"}
+        </button>
         <button
           onClick={() => setCollapsed(!collapsed)}
           className="flex items-center justify-center w-full rounded-lg p-2 text-gray-500 hover:bg-white/5 hover:text-gray-300 transition-colors"

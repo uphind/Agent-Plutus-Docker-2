@@ -6,28 +6,38 @@ const API_BASE = "https://api.openai.com/v1/organization";
 interface OpenAIUsageBucket {
   start_time: number;
   end_time: number;
-  results: Array<{
-    object: string;
-    input_tokens?: number;
-    output_tokens?: number;
-    input_cached_tokens?: number;
-    num_model_requests?: number;
-    model?: string;
-    user_id?: string;
-    project_id?: string;
-    api_key_id?: string;
-  }>;
+  results?: Array<OpenAIUsageResult>;
+  result?: Array<OpenAIUsageResult>;
+}
+
+interface OpenAIUsageResult {
+  object: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  input_cached_tokens?: number;
+  input_audio_tokens?: number;
+  output_audio_tokens?: number;
+  num_model_requests?: number;
+  model?: string;
+  user_id?: string;
+  project_id?: string;
+  api_key_id?: string;
+  batch?: boolean;
+  service_tier?: string;
 }
 
 interface OpenAICostBucket {
   start_time: number;
   end_time: number;
-  results: Array<{
-    object: string;
-    amount?: { value: number; currency: string };
-    line_item?: string;
-    project_id?: string;
-  }>;
+  results?: Array<OpenAICostResult>;
+  result?: Array<OpenAICostResult>;
+}
+
+interface OpenAICostResult {
+  object: string;
+  amount?: { value: number; currency: string };
+  line_item?: string;
+  project_id?: string;
 }
 
 async function openAIFetch(url: string, apiKey: string) {
@@ -80,7 +90,8 @@ export const openaiAdapter: ProviderAdapter = {
 
       for (const bucket of buckets) {
         const bucketDate = new Date(bucket.start_time * 1000);
-        for (const result of bucket.results ?? []) {
+        const items = bucket.results ?? bucket.result ?? [];
+        for (const result of items) {
           records.push({
             provider: Provider.openai,
             userRef: result.user_id ?? null,
@@ -113,8 +124,9 @@ export const openaiAdapter: ProviderAdapter = {
 
         for (const bucket of costBuckets) {
           const bucketDate = new Date(bucket.start_time * 1000);
-          for (const result of bucket.results ?? []) {
-            if (result.amount) {
+          const costItems = bucket.results ?? bucket.result ?? [];
+          for (const result of costItems) {
+            if (result.amount?.value != null) {
               const matchingRecord = records.find(
                 (r) =>
                   r.date.getTime() === bucketDate.getTime() &&

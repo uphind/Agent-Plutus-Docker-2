@@ -1,4 +1,48 @@
 services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./caddy-entrypoint.sh:/entrypoint.sh
+      - caddy_data:/data
+      - caddy_config:/config
+      # Uncomment to mount custom TLS certificates:
+      # - ./certs:/certs:ro
+    environment:
+      DOMAIN: "${DOMAIN:-localhost}"
+    entrypoint: /entrypoint.sh
+    depends_on:
+      - app
+
+  app:
+    build: .
+    restart: unless-stopped
+    # Port 3000 is internal only -- Caddy proxies from 443
+    expose:
+      - "3000"
+    environment:
+      DATABASE_URL: "postgresql://tokenear:tokenear_secret@db:5432/tokenear?schema=public"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:-change-me-to-a-32-char-secret!!}"
+      AUTH_SECRET: "${AUTH_SECRET:-change-me-auth-secret-32-chars!!}"
+      AUTH_URL: "https://${DOMAIN:-localhost}"
+      AUTH_TRUST_HOST: "true"
+      NEXT_PUBLIC_SSO_PROVIDER: "${SSO_PROVIDER:-oidc}"
+      SSO_PROVIDER: "${SSO_PROVIDER:-oidc}"
+      # OIDC settings
+      SSO_ISSUER: "${SSO_ISSUER:-}"
+      SSO_CLIENT_ID: "${SSO_CLIENT_ID:-}"
+      SSO_CLIENT_SECRET: "${SSO_CLIENT_SECRET:-}"
+      # SAML settings
+      SSO_SAML_ENTRY_POINT: "${SSO_SAML_ENTRY_POINT:-}"
+      SSO_SAML_ISSUER: "${SSO_SAML_ISSUER:-}"
+      SSO_SAML_CERT: "${SSO_SAML_CERT:-}"
+    depends_on:
+      - db
+
   db:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -6,21 +50,12 @@ services:
       POSTGRES_USER: tokenear
       POSTGRES_PASSWORD: tokenear_secret
       POSTGRES_DB: tokenear
-    ports:
-      - "5432:5432"
+    expose:
+      - "5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 
-  app:
-    build: .
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      DATABASE_URL: "postgresql://tokenear:tokenear_secret@db:5432/tokenear?schema=public"
-      ENCRYPTION_KEY: "${ENCRYPTION_KEY:-change-me-to-a-32-char-secret!!}"
-    depends_on:
-      - db
-
 volumes:
   pgdata:
+  caddy_data:
+  caddy_config:

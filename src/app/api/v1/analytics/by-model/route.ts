@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { validateApiKey, isAuthError } from "@/lib/auth";
+import { getOrgId } from "@/lib/org";
 
 export async function GET(request: NextRequest) {
-  const auth = await validateApiKey(request);
-  if (isAuthError(auth)) return auth;
+  const orgId = await getOrgId();
 
   const { searchParams } = new URL(request.url);
   const days = parseInt(searchParams.get("days") ?? "30", 10);
@@ -14,7 +13,7 @@ export async function GET(request: NextRequest) {
   startDate.setDate(startDate.getDate() - days);
 
   const where: Record<string, unknown> = {
-    orgId: auth.orgId,
+    orgId: orgId,
     date: { gte: startDate },
   };
   if (provider) where.provider = provider;
