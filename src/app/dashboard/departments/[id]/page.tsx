@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, use } from "react";
+import React, { useEffect, useState, useMemo, use } from "react";
 import Link from "next/link";
 import { Header } from "@/components/layout/header";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
@@ -15,12 +15,15 @@ import { Avatar } from "@/components/ui/avatar";
 import { Modal } from "@/components/ui/modal";
 import { BudgetDonut } from "@/components/charts/budget-donut";
 import { SpendChart } from "@/components/charts/spend-chart";
+import { UsageHeatmap } from "@/components/charts/usage-heatmap";
 import { SkeletonCard } from "@/components/ui/skeleton";
+import { TopModelsTable } from "@/components/tables/top-models-table";
 import { api } from "@/lib/dashboard-api";
 import { formatCurrency, formatTokens } from "@/lib/utils";
 import {
   Settings2, Users, Layers, Search,
-  ChevronUp, ChevronDown, ArrowUpDown,
+  ChevronUp, ChevronDown, ChevronRight, ArrowUpDown,
+  Download,
 } from "lucide-react";
 
 interface TeamData {
@@ -30,7 +33,11 @@ interface TeamData {
 }
 
 interface UserData {
-  user_id: string; name: string; email: string; team: string | null; total_cost: number; total_tokens: number;
+  user_id: string; name: string; email: string; team: string | null; team_id: string | null; total_cost: number; total_tokens: number;
+}
+
+interface ModelData {
+  model: string; provider: string; total_cost: number; total_tokens: number; total_requests: number;
 }
 
 interface DeptDetail {
@@ -41,6 +48,7 @@ interface DeptDetail {
   teams: TeamData[];
   users: UserData[];
   dailySpend: Array<{ date: string; total_cost: number }>;
+  byModel: ModelData[];
 }
 
 type TeamSortField = "name" | "userCount" | "currentSpend" | "totalTokens" | "budgetUsedPct";
@@ -56,6 +64,16 @@ export default function DepartmentDetailPage({ params }: { params: Promise<{ id:
   const [budgetInput, setBudgetInput] = useState("");
   const [thresholdInput, setThresholdInput] = useState("80");
   const [saving, setSaving] = useState(false);
+
+  // Team expand/collapse
+  const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
+  const toggleTeamExpand = (teamId: string) => {
+    setExpandedTeams((prev) => {
+      const next = new Set(prev);
+      if (next.has(teamId)) next.delete(teamId); else next.add(teamId);
+      return next;
+    });
+  };
 
   // Team sort
   const [teamSort, setTeamSort] = useState<TeamSortField>("currentSpend");
@@ -107,6 +125,19 @@ export default function DepartmentDetailPage({ params }: { params: Promise<{ id:
       return teamSortDir === "desc" ? -cmp : cmp;
     });
   }, [data, teamSort, teamSortDir]);
+
+  // Users grouped by team_id for expandable rows
+  const usersByTeam = useMemo(() => {
+    if (!data) return new Map<string, UserData[]>();
+    const map = new Map<string, UserData[]>();
+    for (const u of data.users) {
+      if (!u.team_id) continue;
+      const list = map.get(u.team_id) ?? [];
+      list.push(u);
+      map.set(u.team_id, list);
+    }
+    return map;
+  }, [data]);
 
   // Filtered + sorted users
   const userTeams = useMemo(() => {
@@ -184,14 +215,42 @@ export default function DepartmentDetailPage({ params }: { params: Promise<{ id:
         title={dept.name}
         description={`${data.teams.length} teams · ${data.users.length} users`}
         action={
-          <Button variant="secondary" size="sm" onClick={() => {
-            setBudgetInput(dept.monthlyBudget?.toString() ?? "");
-            setThresholdInput(dept.alertThreshold?.toString() ?? "80");
-            setBudgetModal(true);
-          }}>
-            <Settings2 className="h-3.5 w-3.5" />
-            Configure Budget
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="relative group">
+              <Button variant="secondary" size="sm">
+                <Download className="h-3.5 w-3.5" />
+                Export
+              </Button>
+              <div className="absolute right-0 top-full mt-1 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[140px] hidden group-hover:block z-10">
+                <button
+                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-muted transition-colors"
+                  onClick={() => {
+                    const month = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+                    api.exportDepartmentReport(dept.id, month, "csv");
+                  }}
+                >
+                  CSV Report
+                </button>
+                <button
+                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-muted transition-colors"
+                  onClick={() => {
+                    const month = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+                    api.exportDepartmentReport(dept.id, month, "pdf");
+                  }}
+                >
+                  PDF Report
+                </button>
+              </div>
+            </div>
+            <Button variant="secondary" size="sm" onClick={() => {
+              setBudgetInput(dept.monthlyBudget?.toString() ?? "");
+              setThresholdInput(dept.alertThreshold?.toString() ?? "80");
+              setBudgetModal(true);
+            }}>
+              <Settings2 className="h-3.5 w-3.5" />
+              Configure Budget
+            </Button>
+          </div>
         }
       />
 
@@ -232,12 +291,31 @@ export default function DepartmentDetailPage({ params }: { params: Promise<{ id:
 
       {/* Spend trend */}
       {data.dailySpend.length > 0 && (
-        <Card className="mb-6">
-          <CardHeader><CardTitle>Spend Trend (This Month)</CardTitle></CardHeader>
-          <CardContent>
-            <SpendChart data={data.dailySpend.map((d) => ({ ...d, total_tokens: 0 }))} />
-          </CardContent>
-        </Card>
+        <>
+          <Card className="mb-6">
+            <CardHeader><CardTitle>Spend Trend (This Month)</CardTitle></CardHeader>
+            <CardContent>
+              <SpendChart data={data.dailySpend.map((d) => ({ ...d, total_tokens: 0 }))} />
+            </CardContent>
+          </Card>
+
+          <Card className="mb-6">
+            <CardHeader><CardTitle>Usage Heatmap</CardTitle></CardHeader>
+            <CardContent>
+              <UsageHeatmap
+                data={data.dailySpend.map((d) => ({ date: d.date.split("T")[0], value: d.total_cost }))}
+                weeks={13}
+              />
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {/* Top Models */}
+      {data.byModel && data.byModel.length > 0 && (
+        <div className="mb-6">
+          <TopModelsTable data={data.byModel} title="Top Models (This Month)" />
+        </div>
       )}
 
       {/* Teams — sortable table */}
@@ -271,30 +349,86 @@ export default function DepartmentDetailPage({ params }: { params: Promise<{ id:
                 </tr>
               </thead>
               <tbody>
-                {sortedTeams.map((t) => (
-                  <tr key={t.id} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
-                    <td className="px-5 py-3">
-                      <Link href={`/dashboard/teams/${t.id}`} className="text-sm font-medium hover:text-indigo-600 transition-colors">
-                        {t.name}
-                      </Link>
-                    </td>
-                    <td className="px-5 py-3 text-right text-sm text-muted-foreground tabular-nums">{t.userCount}</td>
-                    <td className="px-5 py-3 text-right text-sm font-medium tabular-nums">{formatCurrency(t.currentSpend)}</td>
-                    <td className="px-5 py-3 text-right text-sm text-muted-foreground tabular-nums">{formatTokens(t.totalTokens)}</td>
-                    <td className="px-5 py-3">
-                      {t.monthlyBudget !== null ? (
-                        <div className="w-32">
-                          <ProgressBar value={t.currentSpend} max={t.monthlyBudget} alertThreshold={t.alertThreshold} size="sm" showLabel />
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">No budget</span>
+                {sortedTeams.map((t) => {
+                  const isExpanded = expandedTeams.has(t.id);
+                  const teamUsers = usersByTeam.get(t.id) ?? [];
+                  return (
+                    <React.Fragment key={t.id}>
+                      <tr
+                        className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors cursor-pointer"
+                        onClick={() => toggleTeamExpand(t.id)}
+                      >
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground transition-transform duration-200" style={{ transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>
+                              <ChevronRight className="h-3.5 w-3.5" />
+                            </span>
+                            <Link
+                              href={`/dashboard/teams/${t.id}`}
+                              className="text-sm font-medium hover:text-brand transition-colors"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {t.name}
+                            </Link>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3 text-right text-sm text-muted-foreground tabular-nums">{t.userCount}</td>
+                        <td className="px-5 py-3 text-right text-sm font-medium tabular-nums">{formatCurrency(t.currentSpend)}</td>
+                        <td className="px-5 py-3 text-right text-sm text-muted-foreground tabular-nums">{formatTokens(t.totalTokens)}</td>
+                        <td className="px-5 py-3">
+                          {t.monthlyBudget !== null ? (
+                            <div className="w-32">
+                              <ProgressBar value={t.currentSpend} max={t.monthlyBudget} alertThreshold={t.alertThreshold} size="sm" showLabel />
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No budget</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3 text-center">
+                          <StatusDot status={t.status as "healthy" | "warning" | "over_budget" | "no_budget"} withLabel />
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr className="bg-muted/30">
+                          <td colSpan={6} className="px-0 py-0">
+                            <div className="pl-10 pr-5 py-2">
+                              {teamUsers.length === 0 ? (
+                                <p className="text-xs text-muted-foreground py-3">No users in this team</p>
+                              ) : (
+                                <table className="w-full">
+                                  <thead>
+                                    <tr className="border-b border-border/50">
+                                      <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">User</th>
+                                      <th className="px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Spend</th>
+                                      <th className="px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Tokens</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {teamUsers.map((u) => (
+                                      <tr key={u.user_id} className="border-b border-border/30 last:border-0 hover:bg-muted/40 transition-colors">
+                                        <td className="px-3 py-2">
+                                          <Link href={`/dashboard/users/${u.user_id}`} className="flex items-center gap-2 hover:text-brand transition-colors">
+                                            <Avatar name={u.name} size="sm" />
+                                            <div>
+                                              <p className="text-xs font-medium">{u.name}</p>
+                                              <p className="text-[10px] text-muted-foreground">{u.email}</p>
+                                            </div>
+                                          </Link>
+                                        </td>
+                                        <td className="px-3 py-2 text-right text-xs font-medium tabular-nums">{formatCurrency(u.total_cost)}</td>
+                                        <td className="px-3 py-2 text-right text-xs text-muted-foreground tabular-nums">{formatTokens(u.total_tokens)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
                       )}
-                    </td>
-                    <td className="px-5 py-3 text-center">
-                      <StatusDot status={t.status as "healthy" | "warning" | "over_budget" | "no_budget"} withLabel />
-                    </td>
-                  </tr>
-                ))}
+                    </React.Fragment>
+                  );
+                })}
                 {sortedTeams.length === 0 && (
                   <tr><td colSpan={6} className="px-6 py-8 text-center text-sm text-muted-foreground">No teams in this department</td></tr>
                 )}
@@ -357,7 +491,7 @@ export default function DepartmentDetailPage({ params }: { params: Promise<{ id:
                 {sortedUsers.map((u) => (
                   <tr key={u.user_id} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
                     <td className="px-5 py-3">
-                      <Link href={`/dashboard/users/${u.user_id}`} className="flex items-center gap-3 hover:text-indigo-600 transition-colors">
+                      <Link href={`/dashboard/users/${u.user_id}`} className="flex items-center gap-3 hover:text-brand transition-colors">
                         <Avatar name={u.name} size="sm" />
                         <div>
                           <p className="text-sm font-medium">{u.name}</p>
@@ -369,7 +503,7 @@ export default function DepartmentDetailPage({ params }: { params: Promise<{ id:
                       {u.team ? (
                         <button
                           onClick={() => setUserTeamFilter(u.team!)}
-                          className="text-xs font-medium px-2 py-0.5 rounded-full border border-border hover:bg-teal-50 hover:border-teal-200 hover:text-teal-700 transition-colors"
+                          className="text-xs font-medium px-2 py-0.5 rounded-full border border-border hover:bg-brand-subtle hover:border-brand/30 hover:text-brand transition-colors"
                         >
                           {u.team}
                         </button>

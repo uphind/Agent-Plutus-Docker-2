@@ -101,6 +101,47 @@ export async function GET() {
     }
   }
 
+  // User budget alerts
+  const usersWithBudgets = await prisma.orgUser.findMany({
+    where: { orgId: orgId, monthlyBudget: { not: null } },
+  });
+
+  if (usersWithBudgets.length > 0) {
+    const userBudgetSpend = await prisma.$queryRaw<
+      Array<{ user_id: string; total_cost: number }>
+    >`
+      SELECT user_id, COALESCE(SUM(cost_usd), 0)::float AS total_cost
+      FROM usage_records
+      WHERE org_id = ${orgId} AND date >= ${monthStart} AND user_id IS NOT NULL
+      GROUP BY user_id
+    `;
+    const userSpendMap = new Map(userBudgetSpend.map((u) => [u.user_id, u.total_cost]));
+
+    for (const usr of usersWithBudgets) {
+      const budget = Number(usr.monthlyBudget);
+      const spent = userSpendMap.get(usr.id) ?? 0;
+      const pct = budget > 0 ? (spent / budget) * 100 : 0;
+
+      if (pct >= 100) {
+        alerts.push({
+          type: "over_budget", severity: "critical",
+          title: `${usr.name} over personal budget`,
+          description: `Spent $${spent.toFixed(2)} of $${budget.toFixed(2)} budget (${pct.toFixed(0)}%)`,
+          entityType: "user", entityId: usr.id, entityName: usr.name,
+          value: pct, threshold: 100,
+        });
+      } else if (pct >= usr.alertThreshold) {
+        alerts.push({
+          type: "budget_warning", severity: "warning",
+          title: `${usr.name} approaching personal budget`,
+          description: `Spent $${spent.toFixed(2)} of $${budget.toFixed(2)} budget (${pct.toFixed(0)}%)`,
+          entityType: "user", entityId: usr.id, entityName: usr.name,
+          value: pct, threshold: usr.alertThreshold,
+        });
+      }
+    }
+  }
+
   // Usage anomaly: users spending >2x department average
   const userSpend = await prisma.$queryRaw<
     Array<{ user_id: string; name: string; department: string | null; department_id: string | null; total_cost: number }>

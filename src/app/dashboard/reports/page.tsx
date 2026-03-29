@@ -1,18 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs } from "@/components/ui/tabs";
-import { AlertBanner } from "@/components/ui/alert-banner";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { SkeletonCard, SkeletonTable } from "@/components/ui/skeleton";
 import { api } from "@/lib/dashboard-api";
 import { formatCurrency, formatTokens, formatNumber, PROVIDER_LABELS, PROVIDER_COLORS } from "@/lib/utils";
-import { Download, TrendingUp, TrendingDown, DollarSign, Calendar, Target } from "lucide-react";
+import Link from "next/link";
+import {
+  Download, TrendingUp, TrendingDown, DollarSign, Calendar, Target,
+  ChevronDown, ChevronRight, AlertCircle, UserX,
+} from "lucide-react";
 
 interface CostSummary {
   period: { month: number; year: number; dayOfMonth: number; daysInMonth: number };
@@ -33,12 +37,20 @@ interface AlertData {
 }
 
 export default function ReportsPage() {
+  const searchParams = useSearchParams();
   const [costData, setCostData] = useState<CostSummary | null>(null);
   const [alerts, setAlerts] = useState<AlertData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState("cost");
+  const [tab, setTab] = useState(searchParams.get("tab") ?? "cost");
   const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    const urlTab = searchParams.get("tab");
+    if (urlTab && ["cost", "providers", "alerts"].includes(urlTab)) {
+      setTab(urlTab);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     setLoading(true);
@@ -99,7 +111,7 @@ export default function ReportsPage() {
         tabs={[
           { id: "cost", label: "Cost Summary" },
           { id: "providers", label: "Provider Comparison" },
-          { id: "alerts", label: "Alerts", count: alerts.length },
+          { id: "alerts", label: "Attention Items", count: alerts.length || undefined, countColor: alerts.some((a) => a.severity === "critical") ? "red" : alerts.some((a) => a.severity === "warning") ? "amber" : alerts.length > 0 ? "green" : undefined },
         ]}
         active={tab}
         onChange={setTab}
@@ -244,18 +256,198 @@ export default function ReportsPage() {
       )}
 
       {tab === "alerts" && (
-        <div className="space-y-3">
-          {alerts.length === 0 ? (
-            <Card className="p-8 text-center">
-              <p className="text-sm text-muted-foreground">No alerts. Everything looks good!</p>
-            </Card>
-          ) : (
-            alerts.map((alert, i) => (
-              <AlertBanner key={i} severity={alert.severity} title={alert.title} description={alert.description} />
-            ))
-          )}
-        </div>
+        <AlertsPanel alerts={alerts} />
       )}
+    </div>
+  );
+}
+
+/* ═══════════════ Alerts Panel ═══════════════ */
+
+const ALERT_CATEGORIES: Record<string, {
+  label: string;
+  description: string;
+  icon: typeof AlertCircle;
+  dotColor: string;
+  bgColor: string;
+}> = {
+  over_budget: {
+    label: "Over Budget",
+    description: "Entities that have exceeded their allocated budget",
+    icon: DollarSign,
+    dotColor: "bg-orange-500",
+    bgColor: "bg-orange-500/8",
+  },
+  budget_warning: {
+    label: "Approaching Budget",
+    description: "Getting close to the budget limit",
+    icon: TrendingUp,
+    dotColor: "bg-amber-400",
+    bgColor: "bg-amber-500/8",
+  },
+  anomaly: {
+    label: "Unusual Spend",
+    description: "Users spending significantly above their department average",
+    icon: TrendingDown,
+    dotColor: "bg-blue-400",
+    bgColor: "bg-blue-500/8",
+  },
+  inactive_user: {
+    label: "Inactive Seats",
+    description: "Users with no AI usage in the last 30 days",
+    icon: UserX,
+    dotColor: "bg-gray-400",
+    bgColor: "bg-gray-500/8",
+  },
+};
+
+const SEVERITY_LABEL: Record<string, { text: string; variant: "warning" | "error" | "info" | "outline" }> = {
+  critical: { text: "Needs attention", variant: "error" },
+  warning: { text: "Heads up", variant: "warning" },
+  info: { text: "FYI", variant: "info" },
+};
+
+function entityLink(a: AlertData): string | undefined {
+  if (!a.entityType || !a.entityId) return undefined;
+  switch (a.entityType) {
+    case "department": return `/dashboard/departments/${a.entityId}`;
+    case "team": return `/dashboard/teams/${a.entityId}`;
+    case "user": return `/dashboard/users/${a.entityId}`;
+    default: return undefined;
+  }
+}
+
+function AlertsPanel({ alerts }: { alerts: AlertData[] }) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  const grouped = alerts.reduce<Record<string, AlertData[]>>((acc, a) => {
+    (acc[a.type] ??= []).push(a);
+    return acc;
+  }, {});
+
+  const categories = Object.keys(ALERT_CATEGORIES).filter((k) => grouped[k]?.length);
+
+  const toggle = (cat: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      next.has(cat) ? next.delete(cat) : next.add(cat);
+      return next;
+    });
+  };
+
+  if (alerts.length === 0) {
+    return (
+      <Card className="p-10 text-center">
+        <div className="h-12 w-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center mx-auto mb-3">
+          <AlertCircle className="h-5 w-5 text-emerald-500" />
+        </div>
+        <p className="text-sm font-medium">All clear</p>
+        <p className="text-xs text-muted-foreground mt-1">No alerts at the moment. Everything is within normal parameters.</p>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Summary strip */}
+      <div className="flex items-center gap-3 flex-wrap">
+        {Object.entries(grouped).map(([type, items]) => {
+          const cat = ALERT_CATEGORIES[type];
+          if (!cat) return null;
+          return (
+            <div key={type} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${cat.bgColor}`}>
+              <span className={`h-2 w-2 rounded-full ${cat.dotColor}`} />
+              <span className="text-xs font-medium">{items.length} {cat.label.toLowerCase()}</span>
+            </div>
+          );
+        })}
+        <span className="text-xs text-muted-foreground ml-auto">{alerts.length} total</span>
+      </div>
+
+      {/* Grouped sections */}
+      {categories.map((type) => {
+        const cat = ALERT_CATEGORIES[type];
+        const items = grouped[type];
+        const isOpen = !collapsed.has(type);
+        const Icon = cat.icon;
+
+        return (
+          <Card key={type} className="overflow-hidden">
+            {/* Group header */}
+            <button
+              onClick={() => toggle(type)}
+              className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-muted/30 transition-colors text-left"
+            >
+              <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${cat.bgColor}`}>
+                <Icon className="h-4 w-4" style={{ color: cat.dotColor.replace("bg-", "").includes("orange") ? "#f97316" : cat.dotColor.replace("bg-", "").includes("amber") ? "#f59e0b" : cat.dotColor.replace("bg-", "").includes("blue") ? "#60a5fa" : "#9ca3af" }} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold">{cat.label}</p>
+                <p className="text-[11px] text-muted-foreground">{cat.description}</p>
+              </div>
+              <Badge variant="outline" className="shrink-0">{items.length}</Badge>
+              {isOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
+            </button>
+
+            {/* Table */}
+            {isOpen && (
+              <div className="border-t border-border">
+                <table className="w-full" style={{ tableLayout: "fixed" }}>
+                  <colgroup>
+                    <col style={{ width: "25%" }} />
+                    <col />
+                    <col style={{ width: "150px" }} />
+                    <col style={{ width: "40px" }} />
+                  </colgroup>
+                  <thead>
+                    <tr className="bg-muted/30">
+                      <th className="px-5 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Entity</th>
+                      <th className="px-5 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Details</th>
+                      <th className="px-5 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Priority</th>
+                      <th className="px-5 py-2" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((a, i) => {
+                      const sev = SEVERITY_LABEL[a.severity] ?? { text: a.severity, variant: "outline" as const };
+                      const link = entityLink(a);
+                      const entityBadge = a.entityType === "department" ? "Dept" : a.entityType === "team" ? "Team" : "User";
+
+                      return (
+                        <tr key={i} className="border-b border-border last:border-0 hover:bg-muted/40 transition-colors group">
+                          <td className="px-5 py-3">
+                            <div className="flex items-center gap-2">
+                              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${cat.dotColor}`} />
+                              <span className="text-sm font-medium">{a.entityName}</span>
+                              <span className="text-[10px] text-muted-foreground px-1.5 py-0.5 rounded bg-muted">{entityBadge}</span>
+                            </div>
+                          </td>
+                          <td className="px-5 py-3">
+                            <p className="text-xs text-muted-foreground">{a.description}</p>
+                          </td>
+                          <td className="px-5 py-3">
+                            <Badge variant={sev.variant}>{sev.text}</Badge>
+                          </td>
+                          <td className="px-5 py-3">
+                            {link && (
+                              <Link
+                                href={link}
+                                className="text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-brand transition-all"
+                              >
+                                <ChevronRight className="h-4 w-4" />
+                              </Link>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        );
+      })}
     </div>
   );
 }

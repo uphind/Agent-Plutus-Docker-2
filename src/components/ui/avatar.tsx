@@ -7,7 +7,7 @@ interface AvatarProps {
 }
 
 const COLORS = [
-  "bg-indigo-100 text-indigo-700",
+  "bg-brand-subtle text-brand",
   "bg-emerald-100 text-emerald-700",
   "bg-amber-100 text-amber-700",
   "bg-rose-100 text-rose-700",

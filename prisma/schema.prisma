@@ -22,6 +22,8 @@ model Organization {
   providerCredentials ProviderCredential[]
   usageRecords        UsageRecord[]
   syncLogs            SyncLog[]
+  notifications       Notification[]
+  cursorDau           CursorDau[]
 
   @@map("organizations")
 }
@@ -65,19 +67,21 @@ model Team {
 }
 
 model OrgUser {
-  id           String   @id @default(uuid())
-  orgId        String   @map("org_id")
-  email        String
-  name         String
-  department   String?
-  team         String?
-  departmentId String?  @map("department_id")
-  teamId       String?  @map("team_id")
-  jobTitle     String?  @map("job_title")
-  employeeId   String?  @map("employee_id")
-  status       String   @default("active")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(uuid())
+  orgId          String   @map("org_id")
+  email          String
+  name           String
+  department     String?
+  team           String?
+  departmentId   String?  @map("department_id")
+  teamId         String?  @map("team_id")
+  jobTitle       String?  @map("job_title")
+  employeeId     String?  @map("employee_id")
+  status         String   @default("active")
+  monthlyBudget  Decimal? @map("monthly_budget") @db.Decimal(12, 2)
+  alertThreshold Int      @default(80) @map("alert_threshold")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   organization   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   departmentRef  Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
@@ -132,6 +136,11 @@ model UsageRecord {
   requestsCount Int      @default(0) @map("requests_count")
   costUsd       Decimal  @default(0) @map("cost_usd") @db.Decimal(12, 6)
 
+  apiKeyId          String?  @map("api_key_id")
+  inputAudioTokens  Int      @default(0) @map("input_audio_tokens")
+  outputAudioTokens Int      @default(0) @map("output_audio_tokens")
+  isBatch           Boolean  @default(false) @map("is_batch")
+
   linesAccepted   Int?   @map("lines_accepted")
   linesSuggested  Int?   @map("lines_suggested")
   acceptRate      Decimal? @map("accept_rate") @db.Decimal(5, 4)
@@ -144,6 +153,7 @@ model UsageRecord {
   organization  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user          OrgUser?     @relation(fields: [userId], references: [id], onDelete: SetNull)
 
+  @@unique([orgId, userId, provider, model, date], name: "usage_dedup")
   @@index([orgId, date])
   @@index([orgId, provider])
   @@index([orgId, userId])
@@ -164,4 +174,44 @@ model SyncLog {
 
   @@index([orgId, provider])
   @@map("sync_logs")
+}
+
+enum NotificationType {
+  budget_alert
+  anomaly
+  sync_failure
+  idle_seat
+  suggestion
+}
+
+model Notification {
+  id         String           @id @default(uuid())
+  orgId      String           @map("org_id")
+  type       NotificationType
+  severity   String           @default("info")
+  title      String
+  message    String
+  entityType String?          @map("entity_type")
+  entityId   String?          @map("entity_id")
+  isRead     Boolean          @default(false) @map("is_read")
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, isRead, createdAt])
+  @@map("notifications")
+}
+
+model CursorDau {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  date      DateTime @db.Date
+  dauCount  Int      @map("dau_count")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, date])
+  @@index([orgId])
+  @@map("cursor_dau")
 }

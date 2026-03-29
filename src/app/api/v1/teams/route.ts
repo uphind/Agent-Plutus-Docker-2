@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
       totalTokens: Number(spend?.total_tokens ?? 0),
       totalRequests: Number(spend?.total_requests ?? 0),
       budgetUsedPct: pct ? Math.round(pct * 10) / 10 : null,
-      status: pct === null ? "no_budget" : pct >= 100 ? "over_budget" : pct >= t.alertThreshold ? "warning" : "healthy",
+      status: pct === null ? "no_budget" : pct >= 100 ? "over_budget" : pct >= t.alertThreshold ? "warning" : pct >= 50 ? "caution" : "healthy",
     };
   });
 

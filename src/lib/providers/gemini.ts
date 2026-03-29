@@ -1,5 +1,5 @@
 import { Provider } from "@/generated/prisma/client";
-import { ProviderAdapter, NormalizedUsageRecord } from "./types";
+import { ProviderAdapter, ProviderFetchResult } from "./types";
 
 /**
  * Gemini API (Google AI Studio) integration.
@@ -33,10 +33,7 @@ export const geminiAdapter: ProviderAdapter = {
     _apiKey: string,
     _startDate: Date,
     _endDate: Date
-  ): Promise<NormalizedUsageRecord[]> {
-    // Google AI Studio does not expose a usage/analytics API.
-    // Usage data must be viewed at https://aistudio.google.com/usage
-    // or exported via Google Cloud Billing → BigQuery.
-    return [];
+  ): Promise<ProviderFetchResult> {
+    return { records: [] };
   },
 };

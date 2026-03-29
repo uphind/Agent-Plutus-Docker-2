@@ -8,19 +8,30 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { SpendChart } from "@/components/charts/spend-chart";
 import { ProviderChart } from "@/components/charts/provider-chart";
 import { Select } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
-import { AlertBanner } from "@/components/ui/alert-banner";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { SkeletonCard, SkeletonTable } from "@/components/ui/skeleton";
 import { api } from "@/lib/dashboard-api";
 import { formatCurrency, formatTokens, formatNumber, PROVIDER_LABELS } from "@/lib/utils";
-import { DollarSign, Zap, Users, Plug, TrendingUp, Building2 } from "lucide-react";
+import Image from "next/image";
+import { DollarSign, Zap, Users, Plug, Check, Boxes } from "lucide-react";
+import { getDepartmentIcon } from "@/lib/entity-icons";
+
+interface ComparisonMetric {
+  current: number;
+  previous: number;
+  changePercent: number;
+}
 
 interface OverviewData {
   totals: {
     costUsd: number; totalTokens: number; requestsCount: number;
     inputTokens: number; outputTokens: number; cachedTokens: number;
+  };
+  comparison?: {
+    cost: ComparisonMetric;
+    tokens: ComparisonMetric;
+    requests: ComparisonMetric;
   };
   byProvider: Array<{
     provider: string;
@@ -32,22 +43,30 @@ interface OverviewData {
   activeProviders: number;
 }
 
-interface AlertData {
-  type: string; severity: "critical" | "warning" | "info";
-  title: string; description: string;
-  entityType: string; entityId: string;
+function ComparisonBadge({ value }: { value: number | undefined }) {
+  if (value == null || !isFinite(value)) return null;
+  const isDown = value < 0;
+  return (
+    <span className={`text-[10px] font-medium ml-1.5 ${isDown ? "text-green-600" : value > 0 ? "text-red-500" : "text-muted-foreground"}`}>
+      {isDown ? "↓" : value > 0 ? "↑" : "→"} {Math.abs(value).toFixed(1)}%
+    </span>
+  );
 }
 
 interface DeptData {
   id: string; name: string; monthlyBudget: number | null; alertThreshold: number;
   currentSpend: number; userCount: number; budgetUsedPct: number | null;
-  status: "healthy" | "warning" | "over_budget" | "no_budget";
+  status: "healthy" | "caution" | "warning" | "over_budget" | "no_budget";
+}
+
+interface ModelData {
+  model: string; provider: string; totalCost: number; totalTokens: number; requestsCount: number;
 }
 
 export default function OverviewPage() {
   const [data, setData] = useState<OverviewData | null>(null);
-  const [alerts, setAlerts] = useState<AlertData[]>([]);
   const [departments, setDepartments] = useState<DeptData[]>([]);
+  const [models, setModels] = useState<ModelData[]>([]);
   const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,13 +75,13 @@ export default function OverviewPage() {
     setLoading(true);
     Promise.all([
       api.getOverview(days),
-      api.getAlerts().catch(() => ({ alerts: [] })),
       api.getDepartments().catch(() => ({ departments: [] })),
+      api.getByModel(days).catch(() => ({ models: [] })),
     ])
-      .then(([overview, alertsData, deptsData]) => {
+      .then(([overview, deptsData, modelData]) => {
         setData(overview);
-        setAlerts(alertsData.alerts?.slice(0, 5) ?? []);
         setDepartments(deptsData.departments ?? []);
+        setModels(modelData.models ?? []);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -99,38 +118,64 @@ export default function OverviewPage() {
         }
       />
 
-      {/* Alerts */}
-      {alerts.length > 0 && (
-        <div className="space-y-2 mb-6">
-          {alerts.filter((a) => a.severity !== "info").slice(0, 3).map((alert, i) => (
-            <AlertBanner
-              key={i}
-              severity={alert.severity}
-              title={alert.title}
-              description={alert.description}
-            />
-          ))}
-        </div>
-      )}
-
       {loading ? (
         <div className="space-y-6">
           <div className="grid grid-cols-4 gap-4">{Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}</div>
           <SkeletonTable rows={5} />
         </div>
+      ) : data && data.activeProviders === 0 && data.topUsers.length === 0 && data.totals.costUsd === 0 ? (
+        /* Onboarding empty state — only shown when there's truly no data */
+        <Card className="p-10 text-center max-w-lg mx-auto">
+          <div className="flex justify-center mb-5">
+            <Image src="/logo/symbol.svg" alt="Agent Plutus" width={48} height={48} />
+          </div>
+          <h2 className="text-xl font-bold mb-2">Welcome to Agent Plutus</h2>
+          <p className="text-sm text-muted-foreground mb-8">
+            Get started by completing the setup steps below. Once configured, your AI usage data will appear here automatically.
+          </p>
+          <div className="space-y-4 text-left">
+            {[
+              { label: "Connect an AI provider", href: "/dashboard/providers", done: false },
+              { label: "Push your employee directory", href: "/dashboard/settings", done: false },
+              { label: "Set department budgets", href: "/dashboard/departments", done: departments.length > 0 },
+            ].map((step) => (
+              <div key={step.label} className="flex items-center gap-3">
+                <div className={`h-6 w-6 rounded-full flex items-center justify-center shrink-0 ${step.done ? "bg-emerald-100 text-emerald-600" : "bg-brand-subtle text-brand"}`}>
+                  {step.done ? <Check className="h-3.5 w-3.5" /> : <span className="h-2 w-2 rounded-full bg-current" />}
+                </div>
+                <span className="text-sm flex-1">{step.label}</span>
+                {!step.done && (
+                  <Link href={step.href} className="text-xs text-brand hover:text-brand-light font-medium">
+                    Set up &rarr;
+                  </Link>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
       ) : data ? (
         <>
           {/* KPI Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <StatCard title="Total Spend" value={formatCurrency(data.totals.costUsd)} subtitle={`Last ${days} days`} icon={DollarSign} />
+            <StatCard
+              title="Total Spend"
+              value={<>{formatCurrency(data.totals.costUsd)}<ComparisonBadge value={data.comparison?.cost.changePercent} /></>}
+              subtitle={`Last ${days} days`}
+              icon={DollarSign}
+            />
             <StatCard
               title="Total Tokens"
-              value={formatTokens(data.totals.totalTokens)}
+              value={<>{formatTokens(data.totals.totalTokens)}<ComparisonBadge value={data.comparison?.tokens.changePercent} /></>}
               subtitle={`${formatTokens(data.totals.inputTokens)} in / ${formatTokens(data.totals.outputTokens)} out`}
               icon={Zap}
             />
             <StatCard title="Active Users" value={formatNumber(data.activeUsers)} subtitle="with recorded usage" icon={Users} />
-            <StatCard title="Providers" value={String(data.activeProviders)} subtitle="of 5 connected" icon={Plug} />
+            <StatCard
+              title="Requests"
+              value={<>{formatNumber(data.totals.requestsCount)}<ComparisonBadge value={data.comparison?.requests.changePercent} /></>}
+              subtitle="total API calls"
+              icon={Plug}
+            />
           </div>
 
           {/* Charts row */}
@@ -145,6 +190,64 @@ export default function OverviewPage() {
             </Card>
           </div>
 
+          {/* Spend by Model */}
+          {models.length > 0 && (
+            <Card className="mb-6">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Spend by Model</CardTitle>
+                  <Link href="/dashboard/analytics" className="text-xs text-brand hover:text-brand-light font-medium">View analytics</Link>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground w-8">#</th>
+                      <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Model</th>
+                      <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Provider</th>
+                      <th className="px-6 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Spend</th>
+                      <th className="px-6 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Tokens</th>
+                      <th className="px-6 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Requests</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {models.slice(0, 8).map((m, i) => {
+                      const maxCost = Math.max(...models.map((x) => x.totalCost), 1);
+                      const barPct = (m.totalCost / maxCost) * 100;
+                      return (
+                        <tr key={`${m.provider}-${m.model}`} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
+                          <td className="px-6 py-3 text-xs text-muted-foreground">{i + 1}</td>
+                          <td className="px-6 py-3">
+                            <div className="flex items-center gap-2">
+                              <Boxes className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              <span className="text-sm font-medium">{m.model}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-3">
+                            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted">
+                              {PROVIDER_LABELS[m.provider] ?? m.provider}
+                            </span>
+                          </td>
+                          <td className="px-6 py-3 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden hidden lg:block">
+                                <div className="h-full rounded-full bg-brand" style={{ width: `${barPct}%` }} />
+                              </div>
+                              <span className="text-sm font-medium tabular-nums">{formatCurrency(m.totalCost)}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-3 text-right text-sm text-muted-foreground tabular-nums">{formatTokens(m.totalTokens)}</td>
+                          <td className="px-6 py-3 text-right text-sm text-muted-foreground tabular-nums">{formatNumber(m.requestsCount)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Departments & Top Users row */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Department budgets */}
@@ -152,19 +255,21 @@ export default function OverviewPage() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle>Department Budgets</CardTitle>
-                  <Link href="/dashboard/departments" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">View all</Link>
+                  <Link href="/dashboard/departments" className="text-xs text-brand hover:text-brand-light font-medium">View all</Link>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 {departments.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">No departments configured</p>
                 ) : (
-                  departments.slice(0, 5).map((dept) => (
+                  departments.slice(0, 5).map((dept) => {
+                    const di = getDepartmentIcon(dept.name);
+                    return (
                     <Link key={dept.id} href={`/dashboard/departments/${dept.id}`} className="block group">
                       <div className="flex items-center justify-between mb-1.5">
                         <div className="flex items-center gap-2">
-                          <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span className="text-sm font-medium group-hover:text-indigo-600 transition-colors">{dept.name}</span>
+                          <di.icon className={`h-3.5 w-3.5 ${di.colorClass}`} />
+                          <span className="text-sm font-medium group-hover:text-brand transition-colors">{dept.name}</span>
                           <span className="text-xs text-muted-foreground">{dept.userCount} users</span>
                         </div>
                         <span className="text-sm font-medium">
@@ -178,7 +283,8 @@ export default function OverviewPage() {
                         <ProgressBar value={dept.currentSpend} max={dept.monthlyBudget} alertThreshold={dept.alertThreshold} size="sm" showLabel={false} />
                       )}
                     </Link>
-                  ))
+                  );
+                  })
                 )}
               </CardContent>
             </Card>
@@ -188,7 +294,7 @@ export default function OverviewPage() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle>Top Users by Spend</CardTitle>
-                  <Link href="/dashboard/users" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">View all</Link>
+                  <Link href="/dashboard/users" className="text-xs text-brand hover:text-brand-light font-medium">View all</Link>
                 </div>
               </CardHeader>
               <CardContent className="p-0">

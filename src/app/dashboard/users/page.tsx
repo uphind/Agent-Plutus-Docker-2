@@ -292,8 +292,7 @@ export default function UsersPage() {
                     const isAnomaly = avgCost > 0 && user.total_cost > avgCost * 2;
                     const isInactive = user.total_cost <= 0 && user.total_tokens <= 0;
 
-                    // Compute bar width relative to top spender in visible set
-                    const maxCost = sorted.length > 0 ? sorted[0].total_cost : 1;
+                    const maxCost = Math.max(...sorted.map((u) => u.total_cost), 1);
                     const barPct = maxCost > 0 ? (user.total_cost / maxCost) * 100 : 0;
                     const maxTokens = Math.max(...sorted.map((u) => u.total_tokens), 1);
                     const tokenBarPct = maxTokens > 0 ? (user.total_tokens / maxTokens) * 100 : 0;
@@ -304,7 +303,7 @@ export default function UsersPage() {
                         className={`border-b border-border last:border-0 hover:bg-muted/50 transition-colors ${isInactive ? "opacity-50" : ""}`}
                       >
                         <td className="px-5 py-3">
-                          <Link href={`/dashboard/users/${user.user_id}`} className="flex items-center gap-3 hover:text-indigo-600 transition-colors">
+                          <Link href={`/dashboard/users/${user.user_id}`} className="flex items-center gap-3 hover:text-brand transition-colors">
                             <Avatar name={user.name} size="sm" />
                             <div>
                               <p className="text-sm font-medium">{user.name}</p>
@@ -316,7 +315,7 @@ export default function UsersPage() {
                           {user.department ? (
                             <button
                               onClick={(e) => { e.stopPropagation(); setDeptFilter(user.department!); setPage(0); }}
-                              className="text-xs font-medium px-2 py-0.5 rounded-full border border-border hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition-colors"
+                              className="text-xs font-medium px-2 py-0.5 rounded-full border border-border hover:bg-brand-subtle hover:border-brand/30 hover:text-brand transition-colors"
                             >
                               {user.department}
                             </button>
@@ -328,7 +327,7 @@ export default function UsersPage() {
                           {user.team ? (
                             <button
                               onClick={(e) => { e.stopPropagation(); if (user.department) setDeptFilter(user.department); setTeamFilter(user.team!); setPage(0); }}
-                              className="text-xs text-muted-foreground hover:text-indigo-600 transition-colors"
+                              className="text-xs text-muted-foreground hover:text-brand transition-colors"
                             >
                               {user.team}
                             </button>
@@ -339,7 +338,7 @@ export default function UsersPage() {
                         <td className="px-5 py-3 text-right">
                           <div className="flex items-center justify-end gap-2">
                             <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden hidden lg:block">
-                              <div className="h-full rounded-full bg-indigo-500" style={{ width: `${barPct}%` }} />
+                              <div className="h-full rounded-full bg-brand" style={{ width: `${barPct}%` }} />
                             </div>
                             <span className="text-sm font-medium tabular-nums">{formatCurrency(user.total_cost)}</span>
                           </div>
@@ -355,11 +354,14 @@ export default function UsersPage() {
                         <td className="px-5 py-3 text-right text-sm text-muted-foreground tabular-nums">
                           {formatNumber(user.total_requests)}
                         </td>
-                        <td className="px-5 py-3 text-center">
+                        <td className="px-5 py-3">
                           {isAnomaly && (
-                            <span title={`${(user.total_cost / avgCost).toFixed(1)}x average spend`}>
-                              <AlertTriangle className="h-4 w-4 text-amber-500" />
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                              <span className="text-[11px] text-amber-600 font-medium whitespace-nowrap">
+                                {(user.total_cost / avgCost).toFixed(1)}x avg
+                              </span>
+                            </div>
                           )}
                         </td>
                       </tr>

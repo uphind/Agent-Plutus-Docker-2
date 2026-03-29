@@ -8,12 +8,16 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const granularity = searchParams.get("granularity") ?? "daily";
   const days = parseInt(searchParams.get("days") ?? "30", 10);
-  const provider = searchParams.get("provider");
+  const providerRaw = searchParams.get("provider");
+  const ALLOWED_PROVIDERS = ["openai", "anthropic", "gemini", "cursor", "vertex"];
+  const provider = providerRaw && ALLOWED_PROVIDERS.includes(providerRaw) ? providerRaw : null;
 
+  const validDays = isFinite(days) && days > 0 ? days : 30;
   const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days);
+  startDate.setDate(startDate.getDate() - validDays);
 
-  const providerFilter = provider ? `AND ur.provider = '${provider}'` : "";
+  const providerFilter = provider ? `AND ur.provider = $3` : "";
+  const queryParams: unknown[] = provider ? [orgId, startDate, provider] : [orgId, startDate];
 
   // Date truncation based on granularity
   let dateTrunc: string;
@@ -58,8 +62,7 @@ export async function GET(request: NextRequest) {
        ${providerFilter}
      GROUP BY period, ur.model, ur.provider
      ORDER BY period ASC, total_cost DESC`,
-    orgId,
-    startDate
+    ...queryParams
   );
 
   // Model totals for the period (for summary cards and rankings)
@@ -89,8 +92,7 @@ export async function GET(request: NextRequest) {
        ${providerFilter}
      GROUP BY ur.model, ur.provider
      ORDER BY total_cost DESC`,
-    orgId,
-    startDate
+    ...queryParams
   );
 
   // Model share over time (for stacked area / percentage view)
@@ -106,8 +108,7 @@ export async function GET(request: NextRequest) {
        ${providerFilter}
      GROUP BY period
      ORDER BY period ASC`,
-    orgId,
-    startDate
+    ...queryParams
   );
 
   // Cost efficiency trends (avg cost per request by model over time)
@@ -135,8 +136,7 @@ export async function GET(request: NextRequest) {
        ${providerFilter}
      GROUP BY period, ur.model, ur.provider
      ORDER BY period ASC`,
-    orgId,
-    startDate
+    ...queryParams
   );
 
   return NextResponse.json({

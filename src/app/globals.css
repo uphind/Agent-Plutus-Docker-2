@@ -17,6 +17,9 @@
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-border: var(--sidebar-border);
+  --color-brand: var(--brand);
+  --color-brand-light: var(--brand-light);
+  --color-brand-subtle: var(--brand-subtle);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --radius-sm: 0.25rem;
@@ -41,6 +44,9 @@
   --sidebar: #0f172a;
   --sidebar-foreground: #f1f5f9;
   --sidebar-border: #1e293b;
+  --brand: #1616e7;
+  --brand-light: #2a2af0;
+  --brand-subtle: rgba(22, 22, 231, 0.1);
 }
 
 body {

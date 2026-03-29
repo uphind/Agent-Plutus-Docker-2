@@ -56,6 +56,20 @@ export async function GET(
     GROUP BY ur.provider ORDER BY total_cost DESC
   `;
 
+  const byModel = await prisma.$queryRaw<
+    Array<{ model: string | null; provider: string; total_cost: number; total_tokens: number; total_requests: number }>
+  >`
+    SELECT ur.model, ur.provider,
+           COALESCE(SUM(ur.cost_usd), 0)::float AS total_cost,
+           COALESCE(SUM(ur.input_tokens + ur.output_tokens), 0)::bigint AS total_tokens,
+           COALESCE(SUM(ur.requests_count), 0)::bigint AS total_requests
+    FROM usage_records ur
+    JOIN org_users u ON ur.user_id = u.id
+    WHERE ur.org_id = ${orgId} AND u.team_id = ${id} AND ur.date >= ${monthStart}
+    GROUP BY ur.model, ur.provider
+    ORDER BY total_cost DESC
+  `;
+
   const budget = team.monthlyBudget ? Number(team.monthlyBudget) : null;
   const totalSpent = users.reduce((s, u) => s + u.total_cost, 0);
   const pct = budget && budget > 0 ? (totalSpent / budget) * 100 : null;
@@ -69,7 +83,7 @@ export async function GET(
       alertThreshold: team.alertThreshold,
       currentSpend: totalSpent,
       budgetUsedPct: pct ? Math.round(pct * 10) / 10 : null,
-      status: pct === null ? "no_budget" : pct >= 100 ? "over_budget" : pct >= team.alertThreshold ? "warning" : "healthy",
+      status: pct === null ? "no_budget" : pct >= 100 ? "over_budget" : pct >= team.alertThreshold ? "warning" : pct >= 50 ? "caution" : "healthy",
     },
     users: users.map((u) => ({
       ...u,
@@ -79,5 +93,12 @@ export async function GET(
     })),
     dailySpend,
     byProvider: byProvider.map((p) => ({ ...p, total_tokens: Number(p.total_tokens) })),
+    byModel: byModel.map((m) => ({
+      model: m.model || "unknown",
+      provider: m.provider,
+      total_cost: m.total_cost,
+      total_tokens: Number(m.total_tokens),
+      total_requests: Number(m.total_requests),
+    })),
   });
 }

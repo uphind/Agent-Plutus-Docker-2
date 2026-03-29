@@ -48,6 +48,43 @@ export const api = {
     const qs = new URLSearchParams(params ?? {});
     return apiFetch(`/users?${qs}`);
   },
+  updateUserBudget: (id: string, budget: number | null, alertThreshold?: number) =>
+    apiFetch(`/users/${id}/budget`, {
+      method: "PUT",
+      body: JSON.stringify({ monthly_budget: budget, alert_threshold: alertThreshold }),
+    }),
+
+  // Suggestions
+  getSuggestions: () => apiFetch("/suggestions"),
+
+  // Anomalies
+  getAnomalies: () => apiFetch("/analytics/anomalies"),
+
+  // Notifications
+  getNotifications: () => apiFetch("/notifications"),
+  markNotificationRead: (id: string) =>
+    apiFetch(`/notifications/${id}/read`, { method: "PUT" }),
+  markAllNotificationsRead: () =>
+    apiFetch("/notifications/read-all", { method: "PUT" }),
+
+  // Explorer
+  getExplorer: (params: Record<string, string>) => {
+    const qs = new URLSearchParams(params);
+    return apiFetch(`/analytics/explorer?${qs}`);
+  },
+
+  // Department report export
+  exportDepartmentReport: async (departmentId: string, month: string, format: "csv" | "pdf") => {
+    const res = await apiRaw(`/reports/department-export?departmentId=${departmentId}&month=${month}&format=${format}`);
+    if (!res.ok) throw new Error("Export failed");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `department-report-${month}.${format}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 
   // Departments
   getDepartments: () => apiFetch("/departments"),
@@ -82,7 +119,7 @@ export const api = {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `tokenear-usage-${days}d.csv`;
+    a.download = `agent-plutus-usage-${days}d.csv`;
     a.click();
     URL.revokeObjectURL(url);
   },

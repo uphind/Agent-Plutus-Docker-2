@@ -70,7 +70,7 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <Header
         title="Settings"
-        description="Configure your Tokenear instance"
+        description="Configure your Agent Plutus instance"
       />
 
       <Card>
@@ -134,7 +134,7 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Push your employee directory to Tokenear so usage can be mapped to users, departments, and teams.
+            Push your employee directory to Agent Plutus so usage can be mapped to users, departments, and teams.
             Your system (Active Directory, HR platform, or custom script) should POST to the endpoint below.
           </p>
 

@@ -1,5 +1,5 @@
 import { Provider } from "@/generated/prisma/client";
-import { ProviderAdapter, NormalizedUsageRecord } from "./types";
+import { ProviderAdapter, ProviderFetchResult } from "./types";
 
 const API_BASE = "https://api.anthropic.com/v1/organizations";
 
@@ -44,7 +44,7 @@ async function anthropicFetch(url: string, apiKey: string) {
     headers: {
       "anthropic-version": "2023-06-01",
       "x-api-key": apiKey,
-      "User-Agent": "Tokenear/1.0.0",
+      "User-Agent": "Agent-Plutus/1.0.0",
     },
   });
   if (!res.ok) {
@@ -72,8 +72,8 @@ export const anthropicAdapter: ProviderAdapter = {
     apiKey: string,
     startDate: Date,
     endDate: Date
-  ): Promise<NormalizedUsageRecord[]> {
-    const records: NormalizedUsageRecord[] = [];
+  ): Promise<ProviderFetchResult> {
+    const records: ProviderFetchResult["records"] = [];
 
     // Fetch usage data
     let usagePage: string | null = null;
@@ -158,6 +158,6 @@ export const anthropicAdapter: ProviderAdapter = {
       // Cost data is supplementary -- don't fail if unavailable
     }
 
-    return records;
+    return { records };
   },
 };

@@ -4,13 +4,14 @@ services:
     restart: unless-stopped
     ports:
       - "443:443"
-      - "80:80"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - ./caddy-entrypoint.sh:/entrypoint.sh
       - caddy_data:/data
       - caddy_config:/config
-      # Uncomment to mount custom TLS certificates:
+      # Mount custom TLS certificates (corporate CA):
+      # 1. Place cert.pem and key.pem in a ./certs/ directory
+      # 2. Uncomment the line below
       # - ./certs:/certs:ro
     environment:
       DOMAIN: "${DOMAIN:-localhost}"
@@ -21,25 +22,31 @@ services:
   app:
     build: .
     restart: unless-stopped
-    # Port 3000 is internal only -- Caddy proxies from 443
     expose:
       - "3000"
     environment:
-      DATABASE_URL: "postgresql://tokenear:tokenear_secret@db:5432/tokenear?schema=public"
+      # Database (connects to the db service below -- no changes needed)
+      DATABASE_URL: "postgresql://plutus:plutus_secret@db:5432/agent_plutus?schema=public"
+
+      # Secrets -- CHANGE THESE in your .env file
       ENCRYPTION_KEY: "${ENCRYPTION_KEY:-change-me-to-a-32-char-secret!!}"
       AUTH_SECRET: "${AUTH_SECRET:-change-me-auth-secret-32-chars!!}"
+
+      # Public URL -- set DOMAIN in .env to your subdomain
       AUTH_URL: "https://${DOMAIN:-localhost}"
       AUTH_TRUST_HOST: "true"
-      NEXT_PUBLIC_SSO_PROVIDER: "${SSO_PROVIDER:-oidc}"
+
+      # SSO -- configure in .env (see README for setup instructions)
       SSO_PROVIDER: "${SSO_PROVIDER:-oidc}"
-      # OIDC settings
       SSO_ISSUER: "${SSO_ISSUER:-}"
       SSO_CLIENT_ID: "${SSO_CLIENT_ID:-}"
       SSO_CLIENT_SECRET: "${SSO_CLIENT_SECRET:-}"
-      # SAML settings
       SSO_SAML_ENTRY_POINT: "${SSO_SAML_ENTRY_POINT:-}"
       SSO_SAML_ISSUER: "${SSO_SAML_ISSUER:-}"
       SSO_SAML_CERT: "${SSO_SAML_CERT:-}"
+
+      # Demo mode -- set to "true" to bypass SSO (for testing only)
+      DEMO_MODE: "${DEMO_MODE:-}"
     depends_on:
       - db
 
@@ -47,9 +54,9 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: tokenear
-      POSTGRES_PASSWORD: tokenear_secret
-      POSTGRES_DB: tokenear
+      POSTGRES_USER: plutus
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-plutus_secret}"
+      POSTGRES_DB: agent_plutus
     expose:
       - "5432"
     volumes:

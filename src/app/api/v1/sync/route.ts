@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getOrgId } from "@/lib/org";
 import { syncProvider, syncAllProviders } from "@/lib/sync/sync-engine";
+import { generateNotifications } from "@/lib/notifications";
 import { Provider } from "@/generated/prisma/client";
 
 const syncSchema = z.object({
@@ -30,9 +31,11 @@ export async function POST(request: NextRequest) {
   try {
     if (parsed.data.provider) {
       const result = await syncProvider(orgId, parsed.data.provider);
+      await generateNotifications(orgId).catch(() => {});
       return NextResponse.json({ success: true, provider: parsed.data.provider, recordsCount: result.recordsCount });
     } else {
       const results = await syncAllProviders(orgId);
+      await generateNotifications(orgId).catch(() => {});
       return NextResponse.json({ success: true, results });
     }
   } catch (error) {

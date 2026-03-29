@@ -53,7 +53,14 @@ export async function GET(request: NextRequest) {
       `
     );
 
-    return NextResponse.json({ user, usage, dailyUsage });
+    return NextResponse.json({
+      user: {
+        ...user,
+        monthlyBudget: user.monthlyBudget ? Number(user.monthlyBudget) : null,
+      },
+      usage,
+      dailyUsage,
+    });
   }
 
   // All users aggregate

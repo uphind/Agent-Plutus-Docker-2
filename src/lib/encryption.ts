@@ -7,7 +7,7 @@ const TAG_LENGTH = 16;
 function getKey(): Buffer {
   const secret = process.env.ENCRYPTION_KEY;
   if (!secret) throw new Error("ENCRYPTION_KEY env var is required");
-  return scryptSync(secret, "tokenear-salt", 32);
+  return scryptSync(secret, "agent-plutus-salt", 32);
 }
 
 export function encrypt(plaintext: string): string {

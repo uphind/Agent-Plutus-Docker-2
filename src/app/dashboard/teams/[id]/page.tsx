@@ -13,7 +13,9 @@ import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { BudgetDonut } from "@/components/charts/budget-donut";
 import { SpendChart } from "@/components/charts/spend-chart";
+import { UsageHeatmap } from "@/components/charts/usage-heatmap";
 import { SkeletonCard } from "@/components/ui/skeleton";
+import { TopModelsTable } from "@/components/tables/top-models-table";
 import { api } from "@/lib/dashboard-api";
 import { formatCurrency, formatTokens, PROVIDER_LABELS, PROVIDER_COLORS } from "@/lib/utils";
 import {
@@ -35,6 +37,7 @@ interface TeamDetail {
   users: UserData[];
   dailySpend: Array<{ date: string; total_cost: number }>;
   byProvider: Array<{ provider: string; total_cost: number; total_tokens: number }>;
+  byModel: Array<{ model: string; provider: string; total_cost: number; total_tokens: number; total_requests: number }>;
 }
 
 type UserSortField = "name" | "job_title" | "total_cost" | "total_tokens" | "total_requests" | "pctOfBudget";
@@ -107,20 +110,20 @@ export default function TeamDetailPage({ params }: { params: Promise<{ id: strin
     return userSortDir === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />;
   };
 
-  if (loading || !data) {
-    return (
-      <div>
-        <Breadcrumb items={[{ label: "Teams", href: "/dashboard/teams" }, { label: "Loading..." }]} />
-        <div className="grid grid-cols-3 gap-4"><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
-      </div>
-    );
-  }
-
   if (error && !data) {
     return (
       <div>
         <Breadcrumb items={[{ label: "Teams", href: "/dashboard/teams" }, { label: "Error" }]} />
         <Card className="p-8 text-center"><p className="text-destructive">{error}</p></Card>
+      </div>
+    );
+  }
+
+  if (loading || !data) {
+    return (
+      <div>
+        <Breadcrumb items={[{ label: "Teams", href: "/dashboard/teams" }, { label: "Loading..." }]} />
+        <div className="grid grid-cols-3 gap-4"><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
       </div>
     );
   }
@@ -187,6 +190,18 @@ export default function TeamDetailPage({ params }: { params: Promise<{ id: strin
             </CardContent>
           </Card>
         )}
+
+        {data.dailySpend.length > 0 && (
+          <Card>
+            <CardHeader><CardTitle>Usage Heatmap</CardTitle></CardHeader>
+            <CardContent>
+              <UsageHeatmap
+                data={data.dailySpend.map((d: { date: string; total_cost: number }) => ({ date: d.date.split("T")[0], value: d.total_cost }))}
+                weeks={13}
+              />
+            </CardContent>
+          </Card>
+        )}
         {data.byProvider.length > 0 && (
           <Card>
             <CardHeader><CardTitle>By Provider</CardTitle></CardHeader>
@@ -213,6 +228,13 @@ export default function TeamDetailPage({ params }: { params: Promise<{ id: strin
           </Card>
         )}
       </div>
+
+      {/* Top Models */}
+      {data.byModel && data.byModel.length > 0 && (
+        <div className="mb-6">
+          <TopModelsTable data={data.byModel} title="Top Models (This Month)" />
+        </div>
+      )}
 
       {/* Users — sortable, searchable */}
       <Card>
@@ -261,7 +283,7 @@ export default function TeamDetailPage({ params }: { params: Promise<{ id: strin
                   return (
                     <tr key={u.user_id} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
                       <td className="px-5 py-3">
-                        <Link href={`/dashboard/users/${u.user_id}`} className="flex items-center gap-3 hover:text-indigo-600 transition-colors">
+                        <Link href={`/dashboard/users/${u.user_id}`} className="flex items-center gap-3 hover:text-brand transition-colors">
                           <Avatar name={u.name} size="sm" />
                           <div>
                             <p className="text-sm font-medium">{u.name}</p>
@@ -273,7 +295,7 @@ export default function TeamDetailPage({ params }: { params: Promise<{ id: strin
                       <td className="px-5 py-3 text-right">
                         <div className="flex items-center justify-end gap-2">
                           <div className="w-14 h-1.5 bg-muted rounded-full overflow-hidden hidden lg:block">
-                            <div className="h-full rounded-full bg-indigo-500" style={{ width: `${barPct}%` }} />
+                            <div className="h-full rounded-full bg-brand" style={{ width: `${barPct}%` }} />
                           </div>
                           <span className="text-sm font-medium tabular-nums">{formatCurrency(u.total_cost)}</span>
                         </div>

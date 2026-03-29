@@ -13,6 +13,7 @@ import { StatusDot } from "@/components/ui/status-dot";
 import { SkeletonCard, SkeletonTable } from "@/components/ui/skeleton";
 import { api } from "@/lib/dashboard-api";
 import { formatCurrency, formatTokens, formatNumber } from "@/lib/utils";
+import { getDepartmentIcon } from "@/lib/entity-icons";
 import {
   Building2, Users, Layers, Search, LayoutGrid, List,
   ChevronUp, ChevronDown, ArrowUpDown, X, Filter,
@@ -29,13 +30,13 @@ interface DeptData {
   totalTokens: number;
   totalRequests: number;
   budgetUsedPct: number | null;
-  status: "healthy" | "warning" | "over_budget" | "no_budget";
+  status: "healthy" | "caution" | "warning" | "over_budget" | "no_budget";
 }
 
 type SortField = "name" | "currentSpend" | "totalTokens" | "userCount" | "teamCount" | "budgetUsedPct";
 type SortDir = "asc" | "desc";
 type ViewMode = "grid" | "table";
-type StatusFilter = "" | "healthy" | "warning" | "over_budget" | "no_budget";
+type StatusFilter = "" | "healthy" | "caution" | "warning" | "over_budget" | "no_budget";
 
 export default function DepartmentsPage() {
   const [departments, setDepartments] = useState<DeptData[]>([]);
@@ -131,8 +132,9 @@ export default function DepartmentsPage() {
             onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
             options={[
               { value: "", label: "All statuses" },
-              { value: "healthy", label: "Healthy" },
-              { value: "warning", label: "Warning" },
+              { value: "healthy", label: "On Track" },
+              { value: "caution", label: "Halfway Through" },
+              { value: "warning", label: "Approaching Limit" },
               { value: "over_budget", label: "Over Budget" },
               { value: "no_budget", label: "No Budget Set" },
             ]}
@@ -219,20 +221,22 @@ export default function DepartmentsPage() {
       ) : view === "grid" ? (
         /* ─── Grid View ─── */
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {sorted.map((dept) => (
+          {sorted.map((dept) => {
+            const di = getDepartmentIcon(dept.name);
+            return (
             <Link key={dept.id} href={`/dashboard/departments/${dept.id}`}>
               <Card hoverable className="p-5 h-full">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-2.5">
-                    <div className="h-9 w-9 rounded-lg bg-indigo-50 flex items-center justify-center">
-                      <Building2 className="h-4.5 w-4.5 text-indigo-600" />
+                    <div className={`h-9 w-9 rounded-lg flex items-center justify-center ${di.bgClass}`}>
+                      <di.icon className={`h-4.5 w-4.5 ${di.colorClass}`} />
                     </div>
                     <div>
                       <h3 className="text-sm font-semibold">{dept.name}</h3>
                       <div className="flex items-center gap-2 mt-0.5">
                         <StatusDot status={dept.status} />
                         <span className="text-[11px] text-muted-foreground">
-                          {dept.status === "over_budget" ? "Over budget" : dept.status === "warning" ? "Approaching limit" : dept.status === "no_budget" ? "No budget set" : "On track"}
+                          {dept.status === "over_budget" ? "Over budget" : dept.status === "warning" ? "Approaching limit" : dept.status === "caution" ? "Halfway through" : dept.status === "no_budget" ? "No budget set" : "On track"}
                         </span>
                       </div>
                     </div>
@@ -274,7 +278,8 @@ export default function DepartmentsPage() {
                 </div>
               </Card>
             </Link>
-          ))}
+          );
+          })}
         </div>
       ) : (
         /* ─── Table View ─── */
@@ -302,19 +307,20 @@ export default function DepartmentsPage() {
                         </span>
                       </th>
                     ))}
-                    <th className="px-5 py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
+                    <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {sorted.map((dept) => {
                     const maxSpend = Math.max(...sorted.map((d) => d.currentSpend), 1);
                     const barPct = (dept.currentSpend / maxSpend) * 100;
+                    const di = getDepartmentIcon(dept.name);
                     return (
                       <tr key={dept.id} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
                         <td className="px-5 py-3">
-                          <Link href={`/dashboard/departments/${dept.id}`} className="flex items-center gap-3 hover:text-indigo-600 transition-colors">
-                            <div className="h-8 w-8 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
-                              <Building2 className="h-4 w-4 text-indigo-600" />
+                          <Link href={`/dashboard/departments/${dept.id}`} className="flex items-center gap-3 hover:text-brand transition-colors">
+                            <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${di.bgClass}`}>
+                              <di.icon className={`h-4 w-4 ${di.colorClass}`} />
                             </div>
                             <span className="text-sm font-medium">{dept.name}</span>
                           </Link>
@@ -324,7 +330,7 @@ export default function DepartmentsPage() {
                         <td className="px-5 py-3 text-right">
                           <div className="flex items-center justify-end gap-2">
                             <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden hidden lg:block">
-                              <div className="h-full rounded-full bg-indigo-500" style={{ width: `${barPct}%` }} />
+                              <div className="h-full rounded-full bg-brand" style={{ width: `${barPct}%` }} />
                             </div>
                             <span className="text-sm font-medium tabular-nums">{formatCurrency(dept.currentSpend)}</span>
                           </div>
@@ -339,7 +345,7 @@ export default function DepartmentsPage() {
                             <span className="text-xs text-muted-foreground">No budget</span>
                           )}
                         </td>
-                        <td className="px-5 py-3 text-center">
+                        <td className="px-5 py-3">
                           <StatusDot status={dept.status} withLabel />
                         </td>
                       </tr>

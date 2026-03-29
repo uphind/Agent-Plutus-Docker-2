@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
   return new NextResponse(csvLines.join("\n"), {
     headers: {
       "Content-Type": "text/csv",
-      "Content-Disposition": `attachment; filename="tokenear-usage-${days}d.csv"`,
+      "Content-Disposition": `attachment; filename="agent-plutus-usage-${days}d.csv"`,
     },
   });
 }

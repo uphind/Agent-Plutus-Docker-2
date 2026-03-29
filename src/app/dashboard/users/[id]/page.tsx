@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
-import Link from "next/link";
+import { useEffect, useState, use, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { StatCard } from "@/components/ui/stat-card";
@@ -9,17 +8,22 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs } from "@/components/ui/tabs";
 import { Avatar } from "@/components/ui/avatar";
+import { ProgressBar } from "@/components/ui/progress-bar";
 import { SpendChart } from "@/components/charts/spend-chart";
+import { UsageHeatmap } from "@/components/charts/usage-heatmap";
 import { SkeletonCard } from "@/components/ui/skeleton";
+import { Modal } from "@/components/ui/modal";
 import { api } from "@/lib/dashboard-api";
 import { formatCurrency, formatTokens, PROVIDER_LABELS, PROVIDER_COLORS } from "@/lib/utils";
-import { DollarSign, Zap, Hash } from "lucide-react";
+import { DollarSign, Zap, Hash, Settings2 } from "lucide-react";
 
 interface UserDetail {
   user: {
     id: string; name: string; email: string;
     department: string | null; team: string | null;
     jobTitle: string | null; employeeId: string | null; status: string;
+    monthlyBudget?: number | null;
+    alertThreshold?: number;
   };
   usage: Array<{
     provider: string; model: string | null;
@@ -34,13 +38,36 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState("overview");
+  const [budgetModal, setBudgetModal] = useState(false);
+  const [budgetValue, setBudgetValue] = useState("");
+  const [thresholdValue, setThresholdValue] = useState("80");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadData = useCallback(() => {
     api.getByUser(30, { userId })
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [userId]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const handleBudgetSave = async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const budget = budgetValue === "" ? null : parseFloat(budgetValue);
+      const threshold = parseInt(thresholdValue) || 80;
+      await api.updateUserBudget(userId, budget, threshold);
+      setBudgetModal(false);
+      loadData();
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Failed to save budget");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -64,6 +91,8 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
   const totalCost = usage.reduce((s, u) => s + Number(u._sum.costUsd ?? 0), 0);
   const totalTokens = usage.reduce((s, u) => s + (u._sum.inputTokens ?? 0) + (u._sum.outputTokens ?? 0), 0);
   const totalRequests = usage.reduce((s, u) => s + (u._sum.requestsCount ?? 0), 0);
+  const budget = user.monthlyBudget ? Number(user.monthlyBudget) : null;
+  const budgetPct = budget && budget > 0 ? (totalCost / budget) * 100 : null;
 
   const dailyAgg = dailyUsage.reduce((acc, d) => {
     const existing = acc.find((a) => a.date === d.date);
@@ -72,7 +101,6 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
     return acc;
   }, [] as Array<{ date: string; total_cost: number; total_tokens: number }>);
 
-  // Group by provider
   const byProvider = new Map<string, { cost: number; tokens: number; requests: number }>();
   for (const u of usage) {
     const key = u.provider;
@@ -87,7 +115,6 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
     <div>
       <Breadcrumb items={[{ label: "Users", href: "/dashboard/users" }, { label: user.name }]} />
 
-      {/* User header */}
       <div className="flex items-start gap-4 mb-6">
         <Avatar name={user.name} size="lg" />
         <div className="flex-1">
@@ -102,16 +129,45 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
             {user.team && <Badge variant="outline">{user.team}</Badge>}
           </div>
         </div>
+        <button
+          onClick={() => {
+            setBudgetValue(budget?.toString() ?? "");
+            setThresholdValue(String(user.alertThreshold ?? 80));
+            setBudgetModal(true);
+          }}
+          className="px-3 py-1.5 text-sm rounded-lg border border-border hover:bg-muted transition-colors flex items-center gap-1.5"
+        >
+          <Settings2 className="h-3.5 w-3.5" />
+          {budget ? "Edit Budget" : "Set Budget"}
+        </button>
       </div>
 
-      {/* KPIs */}
+      {/* Budget card (when set) */}
+      {budget != null && budgetPct != null && (
+        <Card className="mb-6">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium">Monthly Budget</span>
+              <span className="text-sm">
+                {formatCurrency(totalCost)} / {formatCurrency(budget)}
+                <span className="text-muted-foreground ml-1">({budgetPct.toFixed(0)}%)</span>
+              </span>
+            </div>
+            <ProgressBar
+              value={totalCost}
+              max={budget}
+              alertThreshold={user.alertThreshold ?? 80}
+            />
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <StatCard title="Total Spend" value={formatCurrency(totalCost)} subtitle="Last 30 days" icon={DollarSign} />
         <StatCard title="Total Tokens" value={formatTokens(totalTokens)} icon={Zap} />
         <StatCard title="Requests" value={totalRequests.toLocaleString()} icon={Hash} />
       </div>
 
-      {/* Tabs */}
       <Tabs
         tabs={[
           { id: "overview", label: "Overview" },
@@ -124,10 +180,24 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
       />
 
       {tab === "overview" && (
-        <Card>
-          <CardHeader><CardTitle>Spend Over Time</CardTitle></CardHeader>
-          <CardContent><SpendChart data={dailyAgg} /></CardContent>
-        </Card>
+        <>
+          <Card>
+            <CardHeader><CardTitle>Spend Over Time</CardTitle></CardHeader>
+            <CardContent><SpendChart data={dailyAgg} /></CardContent>
+          </Card>
+
+          {dailyAgg.length > 0 && (
+            <Card className="mt-6">
+              <CardHeader><CardTitle>Usage Heatmap</CardTitle></CardHeader>
+              <CardContent>
+                <UsageHeatmap
+                  data={dailyAgg.map((d) => ({ date: d.date.split("T")[0], value: d.total_cost }))}
+                  weeks={13}
+                />
+              </CardContent>
+            </Card>
+          )}
+        </>
       )}
 
       {tab === "providers" && (
@@ -197,6 +267,54 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
           </CardContent>
         </Card>
       )}
+
+      {/* Budget Modal */}
+      <Modal open={budgetModal} title="User Budget" onClose={() => setBudgetModal(false)}>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Monthly Budget ($)</label>
+              <input
+                type="number" min="0" step="10" value={budgetValue}
+                onChange={(e) => setBudgetValue(e.target.value)}
+                placeholder="Leave empty for no budget"
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+              />
+              <p className="text-xs text-muted-foreground mt-1">Optional. Leave empty to remove the budget cap.</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Alert Threshold (%)</label>
+              <input
+                type="number" min="1" max="200" value={thresholdValue}
+                onChange={(e) => setThresholdValue(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              {budget != null && (
+                <button
+                  onClick={() => { setBudgetValue(""); }}
+                  className="px-3 py-1.5 text-sm text-destructive hover:underline"
+                >
+                  Remove Budget
+                </button>
+              )}
+              {saveError && <p className="text-xs text-destructive">{saveError}</p>}
+              <button
+                onClick={() => setBudgetModal(false)}
+                className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBudgetSave}
+                disabled={saving}
+                className="px-4 py-2 text-sm rounded-lg bg-brand text-white hover:bg-brand/90 disabled:opacity-50"
+              >
+                {saving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </Modal>
     </div>
   );
 }

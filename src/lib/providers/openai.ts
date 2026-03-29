@@ -1,5 +1,5 @@
 import { Provider } from "@/generated/prisma/client";
-import { ProviderAdapter, NormalizedUsageRecord } from "./types";
+import { ProviderAdapter, ProviderFetchResult } from "./types";
 
 const API_BASE = "https://api.openai.com/v1/organization";
 
@@ -72,17 +72,16 @@ export const openaiAdapter: ProviderAdapter = {
     apiKey: string,
     startDate: Date,
     endDate: Date
-  ): Promise<NormalizedUsageRecord[]> {
-    const records: NormalizedUsageRecord[] = [];
+  ): Promise<ProviderFetchResult> {
+    const records: ProviderFetchResult["records"] = [];
     const startUnix = Math.floor(startDate.getTime() / 1000);
     const endUnix = Math.floor(endDate.getTime() / 1000);
 
-    // Fetch completions usage with per-user grouping
     let page: string | null = null;
     let hasMore = true;
 
     while (hasMore) {
-      let url = `${API_BASE}/usage/completions?start_time=${startUnix}&end_time=${endUnix}&bucket_width=1d&group_by[]=model&group_by[]=user_id`;
+      let url = `${API_BASE}/usage/completions?start_time=${startUnix}&end_time=${endUnix}&bucket_width=1d&group_by[]=model&group_by[]=user_id&group_by[]=api_key_id`;
       if (page) url += `&page=${page}`;
 
       const data = await openAIFetch(url, apiKey);
@@ -102,6 +101,10 @@ export const openaiAdapter: ProviderAdapter = {
             cachedTokens: result.input_cached_tokens ?? 0,
             requestsCount: result.num_model_requests ?? 0,
             costUsd: 0,
+            apiKeyId: result.api_key_id ?? undefined,
+            inputAudioTokens: result.input_audio_tokens ?? 0,
+            outputAudioTokens: result.output_audio_tokens ?? 0,
+            isBatch: result.batch ?? false,
           });
         }
       }
@@ -110,7 +113,6 @@ export const openaiAdapter: ProviderAdapter = {
       page = data.next_page ?? null;
     }
 
-    // Fetch cost data
     try {
       let costPage: string | null = null;
       let costHasMore = true;
@@ -147,6 +149,6 @@ export const openaiAdapter: ProviderAdapter = {
       // Cost data is supplementary
     }
 
-    return records;
+    return { records };
   },
 };

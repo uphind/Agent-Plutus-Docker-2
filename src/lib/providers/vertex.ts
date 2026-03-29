@@ -1,5 +1,5 @@
 import { Provider } from "@/generated/prisma/client";
-import { ProviderAdapter, NormalizedUsageRecord } from "./types";
+import { ProviderAdapter, ProviderFetchResult } from "./types";
 
 /**
  * Vertex AI / Gemini integration stub.
@@ -28,11 +28,7 @@ export const vertexAdapter: ProviderAdapter = {
     _apiKey: string,
     _startDate: Date,
     _endDate: Date
-  ): Promise<NormalizedUsageRecord[]> {
-    // Vertex AI integration requires GCP Cloud Monitoring API
-    // and BigQuery billing export setup. Returning empty for MVP.
-    // Future: Use google-cloud/monitoring and google-cloud/bigquery
-    // to pull actual usage metrics and billing data.
-    return [];
+  ): Promise<ProviderFetchResult> {
+    return { records: [] };
   },
 };

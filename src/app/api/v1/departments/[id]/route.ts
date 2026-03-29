@@ -69,6 +69,21 @@ export async function GET(
     GROUP BY ur.date ORDER BY ur.date
   `;
 
+  // Model usage breakdown
+  const byModel = await prisma.$queryRaw<
+    Array<{ model: string | null; provider: string; total_cost: number; total_tokens: number; total_requests: number }>
+  >`
+    SELECT ur.model, ur.provider,
+           COALESCE(SUM(ur.cost_usd), 0)::float AS total_cost,
+           COALESCE(SUM(ur.input_tokens + ur.output_tokens), 0)::bigint AS total_tokens,
+           COALESCE(SUM(ur.requests_count), 0)::bigint AS total_requests
+    FROM usage_records ur
+    JOIN org_users u ON ur.user_id = u.id
+    WHERE ur.org_id = ${orgId} AND u.department_id = ${id} AND ur.date >= ${monthStart}
+    GROUP BY ur.model, ur.provider
+    ORDER BY total_cost DESC
+  `;
+
   const budget = department.monthlyBudget ? Number(department.monthlyBudget) : null;
   const totalSpent = users.reduce((s, u) => s + u.total_cost, 0);
   const pct = budget && budget > 0 ? (totalSpent / budget) * 100 : null;
@@ -88,7 +103,7 @@ export async function GET(
       totalTokens: Number(ts?.total_tokens ?? 0),
       totalRequests: Number(ts?.total_requests ?? 0),
       budgetUsedPct: tPct ? Math.round(tPct * 10) / 10 : null,
-      status: tPct === null ? "no_budget" : tPct >= 100 ? "over_budget" : tPct >= t.alertThreshold ? "warning" : "healthy",
+      status: tPct === null ? "no_budget" : tPct >= 100 ? "over_budget" : tPct >= t.alertThreshold ? "warning" : tPct >= 50 ? "caution" : "healthy",
     };
   });
 
@@ -100,10 +115,17 @@ export async function GET(
       alertThreshold: department.alertThreshold,
       currentSpend: totalSpent,
       budgetUsedPct: pct ? Math.round(pct * 10) / 10 : null,
-      status: pct === null ? "no_budget" : pct >= 100 ? "over_budget" : pct >= department.alertThreshold ? "warning" : "healthy",
+      status: pct === null ? "no_budget" : pct >= 100 ? "over_budget" : pct >= department.alertThreshold ? "warning" : pct >= 50 ? "caution" : "healthy",
     },
     teams,
     users: users.map((u) => ({ ...u, total_tokens: Number(u.total_tokens) })),
     dailySpend,
+    byModel: byModel.map((m) => ({
+      model: m.model || "unknown",
+      provider: m.provider,
+      total_cost: m.total_cost,
+      total_tokens: Number(m.total_tokens),
+      total_requests: Number(m.total_requests),
+    })),
   });
 }

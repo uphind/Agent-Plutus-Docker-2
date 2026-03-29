@@ -1,6 +1,8 @@
 import { auth } from "@/auth";
 import { NextResponse } from "next/server";
 
+const DEMO_MODE = process.env.DEMO_MODE === "true";
+
 const PUBLIC_PATHS = [
   "/login",
   "/api/auth",
@@ -11,6 +13,7 @@ export default auth((req) => {
   const { pathname } = req.nextUrl;
 
   if (
+    DEMO_MODE ||
     pathname === "/" ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||

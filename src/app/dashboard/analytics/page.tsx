@@ -10,7 +10,8 @@ import { Tabs } from "@/components/ui/tabs";
 import { SkeletonCard, SkeletonTable } from "@/components/ui/skeleton";
 import { api } from "@/lib/dashboard-api";
 import { formatCurrency, formatTokens, formatNumber, formatModelName, isOverageModel, PROVIDER_LABELS, PROVIDER_COLORS } from "@/lib/utils";
-import { TrendingUp, TrendingDown, Zap, DollarSign, Hash, Clock } from "lucide-react";
+import { Zap, DollarSign, Hash, Clock } from "lucide-react";
+import { UsageHeatmap } from "@/components/charts/usage-heatmap";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -69,7 +70,7 @@ function getWeekNumber(d: Date): number {
   return Math.ceil(((d.getTime() - onejan.getTime()) / 86400000 + onejan.getDay() + 1) / 7);
 }
 
-export default function TrendsPage() {
+export default function AnalyticsPage() {
   const [data, setData] = useState<TrendsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -79,13 +80,21 @@ export default function TrendsPage() {
   const [tab, setTab] = useState("usage");
   const [metric, setMetric] = useState<"cost" | "tokens" | "requests">("cost");
   const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set());
+  const [providerData, setProviderData] = useState<Array<{ provider: string; totalCost: number; totalTokens: number; requestsCount: number }>>([]);
+  const [modelSummary, setModelSummary] = useState<Array<{ model: string; provider: string; totalCost: number; totalTokens: number; requestsCount: number }>>([]);
 
   useEffect(() => {
     setLoading(true);
-    api.getTrends(days, granularity, provider || undefined)
-      .then((d) => {
+    Promise.all([
+      api.getTrends(days, granularity, provider || undefined),
+      api.getByProvider(days).catch(() => ({ byProvider: [] })),
+      api.getByModel(days, provider || undefined).catch(() => ({ models: [] })),
+    ])
+      .then(([d, provData, modData]) => {
         setData(d);
         setSelectedModels(new Set(d.modelTotals.slice(0, 8).map((m: ModelTotal) => `${m.provider}|${m.model}`)));
+        setProviderData(provData.providers ?? []);
+        setModelSummary(modData.models ?? []);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -101,11 +110,17 @@ export default function TrendsPage() {
   }, [data]);
 
   // Build chart data: pivot time series into { period, model1: val, model2: val, ... }
+  const AVG_KEY = "Avg (all models)";
+
   const chartData = useMemo(() => {
     if (!data) return [];
     const periods = [...new Set(data.timeSeries.map((r) => r.period))].sort();
+    const defaultLabels = data.modelTotals
+      .filter((m) => selectedModels.has(`${m.provider}|${m.model}`))
+      .map((m) => modelLabel(m.provider, m.model));
     return periods.map((period) => {
       const row: Record<string, string | number> = { period: formatPeriod(period, granularity) };
+      for (const label of defaultLabels) row[label] = 0;
       const entries = data.timeSeries.filter((r) => r.period === period);
       for (const e of entries) {
         const key = `${e.provider}|${e.model}`;
@@ -115,6 +130,8 @@ export default function TrendsPage() {
         else if (metric === "tokens") row[label] = e.total_tokens;
         else row[label] = e.total_requests;
       }
+      const vals = defaultLabels.map((l) => Number(row[l] ?? 0));
+      row[AVG_KEY] = vals.length > 0 ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100 : 0;
       return row;
     });
   }, [data, granularity, metric, selectedModels]);
@@ -123,8 +140,12 @@ export default function TrendsPage() {
   const efficiencyData = useMemo(() => {
     if (!data) return [];
     const periods = [...new Set(data.efficiencyTrends.map((r) => r.period))].sort();
+    const defaultLabels = data.modelTotals
+      .filter((m) => selectedModels.has(`${m.provider}|${m.model}`))
+      .map((m) => modelLabel(m.provider, m.model));
     return periods.map((period) => {
       const row: Record<string, string | number> = { period: formatPeriod(period, granularity) };
+      for (const label of defaultLabels) row[label] = 0;
       const entries = data.efficiencyTrends.filter((r) => r.period === period);
       for (const e of entries) {
         const key = `${e.provider}|${e.model}`;
@@ -139,10 +160,14 @@ export default function TrendsPage() {
   const shareData = useMemo(() => {
     if (!data) return [];
     const periods = [...new Set(data.timeSeries.map((r) => r.period))].sort();
+    const defaultLabels = data.modelTotals
+      .filter((m) => selectedModels.has(`${m.provider}|${m.model}`))
+      .map((m) => modelLabel(m.provider, m.model));
     return periods.map((period) => {
       const entries = data.timeSeries.filter((r) => r.period === period);
       const total = entries.reduce((s, e) => s + e.total_cost, 0);
       const row: Record<string, string | number> = { period: formatPeriod(period, granularity) };
+      for (const label of defaultLabels) row[label] = 0;
       for (const e of entries) {
         const key = `${e.provider}|${e.model}`;
         if (!selectedModels.has(key)) continue;
@@ -176,7 +201,7 @@ export default function TrendsPage() {
   if (error) {
     return (
       <div>
-        <Header title="Trends" />
+        <Header title="Analytics" />
         <Card className="p-8 text-center"><p className="text-destructive">{error}</p></Card>
       </div>
     );
@@ -201,8 +226,8 @@ export default function TrendsPage() {
   return (
     <div>
       <Header
-        title="Trends"
-        description="Model usage trends and comparisons over time"
+        title="Analytics"
+        description="Spend trends, model usage, and provider comparisons"
         action={
           <div className="flex items-center gap-2">
             <Select
@@ -258,6 +283,80 @@ export default function TrendsPage() {
             <StatCard title="Data Points" value={formatNumber(data.periodTotals.length)} subtitle={`${granularity} intervals`} icon={Clock} />
           </div>
 
+          {/* Spend by Provider & Spend by Model */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <Card>
+              <CardHeader><CardTitle>Spend by Provider</CardTitle></CardHeader>
+              <CardContent className="p-0">
+                {providerData.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8 px-6">No provider data</p>
+                ) : (
+                  <table className="w-full">
+                    <tbody>
+                      {providerData.sort((a, b) => b.totalCost - a.totalCost).map((p) => {
+                        const maxCost = Math.max(...providerData.map((x) => x.totalCost), 1);
+                        const barPct = (p.totalCost / maxCost) * 100;
+                        return (
+                          <tr key={p.provider} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
+                            <td className="px-5 py-3">
+                              <div className="flex items-center gap-2">
+                                <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: PROVIDER_COLORS[p.provider] ?? "#6b7280" }} />
+                                <span className="text-sm font-medium">{PROVIDER_LABELS[p.provider] ?? p.provider}</span>
+                              </div>
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <div className="w-20 h-1.5 bg-muted rounded-full overflow-hidden">
+                                  <div className="h-full rounded-full" style={{ width: `${barPct}%`, backgroundColor: PROVIDER_COLORS[p.provider] ?? "#6b7280" }} />
+                                </div>
+                                <span className="text-sm font-medium tabular-nums">{formatCurrency(p.totalCost)}</span>
+                              </div>
+                            </td>
+                            <td className="px-5 py-3 text-right text-xs text-muted-foreground tabular-nums">{formatNumber(p.requestsCount)} req</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader><CardTitle>Spend by Model</CardTitle></CardHeader>
+              <CardContent className="p-0">
+                {modelSummary.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8 px-6">No model data</p>
+                ) : (
+                  <table className="w-full">
+                    <tbody>
+                      {modelSummary.slice(0, 8).map((m, i) => {
+                        const maxCost = Math.max(...modelSummary.map((x) => x.totalCost), 1);
+                        const barPct = (m.totalCost / maxCost) * 100;
+                        return (
+                          <tr key={`${m.provider}-${m.model}-${i}`} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
+                            <td className="px-5 py-3">
+                              <span className="text-sm font-medium">{formatModelName(m.model)}</span>
+                              <span className="text-[10px] text-muted-foreground ml-1.5">{PROVIDER_LABELS[m.provider] ?? m.provider}</span>
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <div className="w-20 h-1.5 bg-muted rounded-full overflow-hidden">
+                                  <div className="h-full rounded-full bg-brand" style={{ width: `${barPct}%` }} />
+                                </div>
+                                <span className="text-sm font-medium tabular-nums">{formatCurrency(m.totalCost)}</span>
+                              </div>
+                            </td>
+                            <td className="px-5 py-3 text-right text-xs text-muted-foreground tabular-nums">{formatNumber(m.requestsCount)} req</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
           {/* Model selector */}
           <Card className="mb-6">
             <CardContent className="py-3">
@@ -292,6 +391,7 @@ export default function TrendsPage() {
           <Tabs
             tabs={[
               { id: "usage", label: "Usage Over Time" },
+              { id: "heatmap", label: "Heatmap" },
               { id: "share", label: "Model Share" },
               { id: "efficiency", label: "Cost Efficiency" },
               { id: "ranking", label: "Model Ranking" },
@@ -301,6 +401,22 @@ export default function TrendsPage() {
             onChange={setTab}
             className="mb-6"
           />
+
+          {/* ═══════════════ Heatmap ═══════════════ */}
+          {tab === "heatmap" && (
+            <Card>
+              <CardHeader><CardTitle>Daily Spend Heatmap</CardTitle></CardHeader>
+              <CardContent>
+                <UsageHeatmap
+                  data={data.periodTotals.map((p) => ({
+                    date: p.period.split("T")[0],
+                    value: p.total_cost,
+                  }))}
+                  weeks={Math.min(Math.ceil(days / 7) + 1, 52)}
+                />
+              </CardContent>
+            </Card>
+          )}
 
           {/* ═══════════════ Usage Over Time ═══════════════ */}
           {tab === "usage" && (
@@ -338,6 +454,7 @@ export default function TrendsPage() {
                             <Line key={label} type="monotone" dataKey={label} stroke={color} strokeWidth={2} dot={{ r: 2.5 }} activeDot={{ r: 4 }} />
                           );
                         })}
+                        <Line type="monotone" dataKey={AVG_KEY} stroke="#94a3b8" strokeWidth={2} strokeDasharray="6 3" dot={false} />
                       </LineChart>
                     </ResponsiveContainer>
                   )}
@@ -363,6 +480,7 @@ export default function TrendsPage() {
                             <Area key={label} type="monotone" dataKey={label} stackId="1" stroke={color} fill={color} fillOpacity={0.3} />
                           );
                         })}
+                        <Line type="monotone" dataKey={AVG_KEY} stroke="#94a3b8" strokeWidth={2} strokeDasharray="6 3" dot={false} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </CardContent>

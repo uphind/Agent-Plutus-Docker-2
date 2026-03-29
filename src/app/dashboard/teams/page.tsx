@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,12 +10,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { StatusDot } from "@/components/ui/status-dot";
+import { Avatar } from "@/components/ui/avatar";
 import { SkeletonCard, SkeletonTable } from "@/components/ui/skeleton";
 import { api } from "@/lib/dashboard-api";
-import { formatCurrency, formatTokens } from "@/lib/utils";
+import { formatCurrency, formatTokens, PROVIDER_LABELS } from "@/lib/utils";
+import { getTeamIcon } from "@/lib/entity-icons";
 import {
   UsersRound, Users, Search, LayoutGrid, List,
-  ChevronUp, ChevronDown, ArrowUpDown, X, Filter,
+  ChevronUp, ChevronDown, ChevronRight, ArrowUpDown, X, Filter,
+  Loader2,
 } from "lucide-react";
 
 interface TeamData {
@@ -28,13 +31,13 @@ interface TeamData {
   currentSpend: number;
   totalTokens: number;
   budgetUsedPct: number | null;
-  status: "healthy" | "warning" | "over_budget" | "no_budget";
+  status: "healthy" | "caution" | "warning" | "over_budget" | "no_budget";
 }
 
 type SortField = "name" | "department" | "currentSpend" | "totalTokens" | "userCount" | "budgetUsedPct";
 type SortDir = "asc" | "desc";
 type ViewMode = "grid" | "table";
-type StatusFilter = "" | "healthy" | "warning" | "over_budget" | "no_budget";
+type StatusFilter = "" | "healthy" | "caution" | "warning" | "over_budget" | "no_budget";
 
 export default function TeamsPage() {
   const [teams, setTeams] = useState<TeamData[]>([]);
@@ -46,6 +49,46 @@ export default function TeamsPage() {
   const [sortField, setSortField] = useState<SortField>("currentSpend");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [view, setView] = useState<ViewMode>("grid");
+
+  // Expand/collapse for table view
+  interface TeamUserData {
+    user_id: string; name: string; email: string; job_title: string | null;
+    total_cost: number; total_tokens: number;
+  }
+  interface TeamModelData {
+    model: string; provider: string; total_cost: number; total_tokens: number; total_requests: number;
+  }
+  interface TeamExpandData {
+    users: TeamUserData[];
+    byModel: TeamModelData[];
+  }
+  const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
+  const [teamDetailCache, setTeamDetailCache] = useState<Map<string, TeamExpandData>>(new Map());
+  const [loadingTeamUsers, setLoadingTeamUsers] = useState<Set<string>>(new Set());
+
+  const toggleTeamExpand = useCallback(async (teamId: string) => {
+    setExpandedTeams((prev) => {
+      const next = new Set(prev);
+      if (next.has(teamId)) { next.delete(teamId); return next; }
+      next.add(teamId);
+      return next;
+    });
+
+    if (!teamDetailCache.has(teamId)) {
+      setLoadingTeamUsers((prev) => new Set(prev).add(teamId));
+      try {
+        const data = await api.getTeam(teamId);
+        setTeamDetailCache((prev) => new Map(prev).set(teamId, {
+          users: data.users ?? [],
+          byModel: data.byModel ?? [],
+        }));
+      } catch {
+        setTeamDetailCache((prev) => new Map(prev).set(teamId, { users: [], byModel: [] }));
+      } finally {
+        setLoadingTeamUsers((prev) => { const n = new Set(prev); n.delete(teamId); return n; });
+      }
+    }
+  }, [teamDetailCache]);
 
   useEffect(() => {
     api.getTeams()
@@ -140,8 +183,9 @@ export default function TeamsPage() {
             onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
             options={[
               { value: "", label: "All statuses" },
-              { value: "healthy", label: "Healthy" },
-              { value: "warning", label: "Warning" },
+              { value: "healthy", label: "On Track" },
+              { value: "caution", label: "Halfway Through" },
+              { value: "warning", label: "Approaching Limit" },
               { value: "over_budget", label: "Over Budget" },
               { value: "no_budget", label: "No Budget Set" },
             ]}
@@ -236,13 +280,15 @@ export default function TeamsPage() {
       ) : view === "grid" ? (
         /* ─── Grid View ─── */
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {sorted.map((team) => (
+          {sorted.map((team) => {
+            const ti = getTeamIcon(team.name);
+            return (
             <Link key={team.id} href={`/dashboard/teams/${team.id}`}>
               <Card hoverable className="p-5 h-full">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-2.5">
-                    <div className="h-9 w-9 rounded-lg bg-teal-50 flex items-center justify-center">
-                      <UsersRound className="h-4.5 w-4.5 text-teal-600" />
+                    <div className={`h-9 w-9 rounded-lg flex items-center justify-center ${ti.bgClass}`}>
+                      <ti.icon className={`h-4.5 w-4.5 ${ti.colorClass}`} />
                     </div>
                     <div>
                       <h3 className="text-sm font-semibold">{team.name}</h3>
@@ -273,7 +319,8 @@ export default function TeamsPage() {
                 </div>
               </Card>
             </Link>
-          ))}
+          );
+          })}
         </div>
       ) : (
         /* ─── Table View ─── */
@@ -301,54 +348,153 @@ export default function TeamsPage() {
                         </span>
                       </th>
                     ))}
-                    <th className="px-5 py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
+                    <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {sorted.map((team) => {
                     const maxSpend = Math.max(...sorted.map((t) => t.currentSpend), 1);
                     const barPct = (team.currentSpend / maxSpend) * 100;
+                    const isExpanded = expandedTeams.has(team.id);
+                    const isLoadingUsers = loadingTeamUsers.has(team.id);
+                    const cached = teamDetailCache.get(team.id);
+                    const cachedUsers = cached?.users;
+                    const cachedModels = cached?.byModel;
+                    const ti = getTeamIcon(team.name);
                     return (
-                      <tr key={team.id} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
-                        <td className="px-5 py-3">
-                          <Link href={`/dashboard/teams/${team.id}`} className="flex items-center gap-3 hover:text-teal-600 transition-colors">
-                            <div className="h-8 w-8 rounded-lg bg-teal-50 flex items-center justify-center shrink-0">
-                              <UsersRound className="h-4 w-4 text-teal-600" />
+                      <React.Fragment key={team.id}>
+                        <tr
+                          className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors cursor-pointer"
+                          onClick={() => toggleTeamExpand(team.id)}
+                        >
+                          <td className="px-5 py-3">
+                            <div className="flex items-center gap-3">
+                              <span className="text-muted-foreground transition-transform duration-200" style={{ transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>
+                                <ChevronRight className="h-3.5 w-3.5" />
+                              </span>
+                              <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${ti.bgClass}`}>
+                                <ti.icon className={`h-4 w-4 ${ti.colorClass}`} />
+                              </div>
+                              <Link
+                                href={`/dashboard/teams/${team.id}`}
+                                className="text-sm font-medium hover:text-brand transition-colors"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {team.name}
+                              </Link>
                             </div>
-                            <span className="text-sm font-medium">{team.name}</span>
-                          </Link>
-                        </td>
-                        <td className="px-5 py-3">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setDeptFilter(team.department.name); }}
-                            className="text-xs font-medium px-2 py-0.5 rounded-full border border-border hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition-colors"
-                          >
-                            {team.department.name}
-                          </button>
-                        </td>
-                        <td className="px-5 py-3 text-right text-sm tabular-nums">{team.userCount}</td>
-                        <td className="px-5 py-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden hidden lg:block">
-                              <div className="h-full rounded-full bg-teal-500" style={{ width: `${barPct}%` }} />
+                          </td>
+                          <td className="px-5 py-3">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setDeptFilter(team.department.name); }}
+                              className="text-xs font-medium px-2 py-0.5 rounded-full border border-border hover:bg-brand-subtle hover:border-brand/30 hover:text-brand transition-colors"
+                            >
+                              {team.department.name}
+                            </button>
+                          </td>
+                          <td className="px-5 py-3 text-right text-sm tabular-nums">{team.userCount}</td>
+                          <td className="px-5 py-3 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden hidden lg:block">
+                                <div className="h-full rounded-full bg-teal-500" style={{ width: `${barPct}%` }} />
+                              </div>
+                              <span className="text-sm font-medium tabular-nums">{formatCurrency(team.currentSpend)}</span>
                             </div>
-                            <span className="text-sm font-medium tabular-nums">{formatCurrency(team.currentSpend)}</span>
-                          </div>
-                        </td>
-                        <td className="px-5 py-3 text-right text-sm text-muted-foreground tabular-nums">{formatTokens(team.totalTokens)}</td>
-                        <td className="px-5 py-3">
-                          {team.monthlyBudget !== null ? (
-                            <div className="w-32">
-                              <ProgressBar value={team.currentSpend} max={team.monthlyBudget} alertThreshold={team.alertThreshold} size="sm" showLabel />
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">No budget</span>
-                          )}
-                        </td>
-                        <td className="px-5 py-3 text-center">
-                          <StatusDot status={team.status} withLabel />
-                        </td>
-                      </tr>
+                          </td>
+                          <td className="px-5 py-3 text-right text-sm text-muted-foreground tabular-nums">{formatTokens(team.totalTokens)}</td>
+                          <td className="px-5 py-3">
+                            {team.monthlyBudget !== null ? (
+                              <div className="w-32">
+                                <ProgressBar value={team.currentSpend} max={team.monthlyBudget} alertThreshold={team.alertThreshold} size="sm" showLabel />
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">No budget</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-3">
+                            <StatusDot status={team.status} withLabel />
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr className="bg-muted/30">
+                            <td colSpan={7} className="px-0 py-0">
+                              <div className="pl-14 pr-5 py-2">
+                                {isLoadingUsers ? (
+                                  <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground">
+                                    <Loader2 className="h-3 w-3 animate-spin" /> Loading…
+                                  </div>
+                                ) : (
+                                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                    {/* Users */}
+                                    <div>
+                                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Users</p>
+                                      {!cachedUsers || cachedUsers.length === 0 ? (
+                                        <p className="text-xs text-muted-foreground py-2">No users</p>
+                                      ) : (
+                                        <table className="w-full">
+                                          <thead>
+                                            <tr className="border-b border-border/50">
+                                              <th className="px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">User</th>
+                                              <th className="px-3 py-1.5 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Spend</th>
+                                              <th className="px-3 py-1.5 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Tokens</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {cachedUsers.map((u) => (
+                                              <tr key={u.user_id} className="border-b border-border/30 last:border-0 hover:bg-muted/40 transition-colors">
+                                                <td className="px-3 py-1.5">
+                                                  <Link href={`/dashboard/users/${u.user_id}`} className="flex items-center gap-2 hover:text-brand transition-colors">
+                                                    <Avatar name={u.name} size="sm" />
+                                                    <div>
+                                                      <p className="text-xs font-medium">{u.name}</p>
+                                                      <p className="text-[10px] text-muted-foreground">{u.email}</p>
+                                                    </div>
+                                                  </Link>
+                                                </td>
+                                                <td className="px-3 py-1.5 text-right text-xs font-medium tabular-nums">{formatCurrency(u.total_cost)}</td>
+                                                <td className="px-3 py-1.5 text-right text-xs text-muted-foreground tabular-nums">{formatTokens(u.total_tokens)}</td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      )}
+                                    </div>
+                                    {/* Models */}
+                                    <div>
+                                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Models</p>
+                                      {!cachedModels || cachedModels.length === 0 ? (
+                                        <p className="text-xs text-muted-foreground py-2">No model data</p>
+                                      ) : (
+                                        <table className="w-full">
+                                          <thead>
+                                            <tr className="border-b border-border/50">
+                                              <th className="px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Model</th>
+                                              <th className="px-3 py-1.5 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Spend</th>
+                                              <th className="px-3 py-1.5 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Requests</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {cachedModels.slice(0, 5).map((m, mi) => (
+                                              <tr key={`${m.provider}-${m.model}-${mi}`} className="border-b border-border/30 last:border-0">
+                                                <td className="px-3 py-1.5">
+                                                  <span className="text-xs font-medium">{m.model}</span>
+                                                  <span className="text-[10px] text-muted-foreground ml-1">{PROVIDER_LABELS[m.provider] ?? m.provider}</span>
+                                                </td>
+                                                <td className="px-3 py-1.5 text-right text-xs font-medium tabular-nums">{formatCurrency(m.total_cost)}</td>
+                                                <td className="px-3 py-1.5 text-right text-xs text-muted-foreground tabular-nums">{m.total_requests}</td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     );
                   })}
                 </tbody>

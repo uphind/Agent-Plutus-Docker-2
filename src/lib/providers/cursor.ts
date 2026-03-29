@@ -1,5 +1,5 @@
 import { Provider } from "@/generated/prisma/client";
-import { ProviderAdapter, NormalizedUsageRecord } from "./types";
+import { ProviderAdapter, ProviderFetchResult, CursorDauRecord } from "./types";
 
 const ANALYTICS_BASE = "https://api.cursor.com/analytics/team";
 const ADMIN_BASE = "https://api.cursor.com";
@@ -155,8 +155,9 @@ export const cursorAdapter: ProviderAdapter = {
     apiKey: string,
     startDate: Date,
     endDate: Date
-  ): Promise<NormalizedUsageRecord[]> {
-    const records: NormalizedUsageRecord[] = [];
+  ): Promise<ProviderFetchResult> {
+    const records: ProviderFetchResult["records"] = [];
+    const cursorDau: CursorDauRecord[] = [];
     const start = formatDate(startDate);
     const end = formatDate(endDate);
 
@@ -234,6 +235,19 @@ export const cursorAdapter: ProviderAdapter = {
       // Model usage endpoint may not be available
     }
 
+    // --- Analytics API: DAU ---
+    try {
+      const dauData = await cursorGet(
+        `${ANALYTICS_BASE}/dau?startDate=${start}&endDate=${end}`,
+        apiKey
+      );
+      for (const entry of (dauData.data ?? []) as Array<{ date: string; dau: number }>) {
+        cursorDau.push({ date: new Date(entry.date), dauCount: entry.dau });
+      }
+    } catch {
+      // DAU endpoint may not be available
+    }
+
     // --- Admin API: per-user daily usage + spend ---
     try {
       const [dailyRows, spendMap] = await Promise.all([
@@ -241,7 +255,6 @@ export const cursorAdapter: ProviderAdapter = {
         fetchSpend(apiKey),
       ]);
 
-      // Build per-user total usageBasedReqs across the period for cost distribution
       const userOverageTotal = new Map<string, number>();
       for (const row of dailyRows) {
         if (row.usageBasedReqs > 0) {
@@ -253,7 +266,9 @@ export const cursorAdapter: ProviderAdapter = {
       }
 
       for (const row of dailyRows) {
-        // Included usage record (per user, per day)
+        const spend = spendMap.get(row.email);
+        const tabRequests = row.totalTabsShown;
+
         if (row.subscriptionIncludedReqs > 0) {
           records.push({
             provider: Provider.cursor,
@@ -271,20 +286,19 @@ export const cursorAdapter: ProviderAdapter = {
               composer_requests: row.composerRequests,
               chat_requests: row.chatRequests,
               agent_requests: row.agentRequests,
+              tab_requests: tabRequests,
               cmdk_usages: row.cmdkUsages,
               tabs_shown: row.totalTabsShown,
               tabs_accepted: row.totalTabsAccepted,
+              fast_premium_requests: spend?.fastPremiumRequests ?? 0,
               most_used_model: row.mostUsedModel,
               client_version: row.clientVersion,
             },
           });
         }
 
-        // Usage-based (overage) record
         if (row.usageBasedReqs > 0) {
-          const spend = spendMap.get(row.email);
           const userTotalOverage = userOverageTotal.get(row.email) ?? 1;
-          // Distribute the user's total overage spend proportionally across days
           const dailyCostUsd = spend
             ? (spend.spendCents / 100) * (row.usageBasedReqs / userTotalOverage)
             : 0;
@@ -303,6 +317,8 @@ export const cursorAdapter: ProviderAdapter = {
               composer_requests: row.composerRequests,
               chat_requests: row.chatRequests,
               agent_requests: row.agentRequests,
+              tab_requests: tabRequests,
+              fast_premium_requests: spend?.fastPremiumRequests ?? 0,
               spend_limit_dollars: spend?.monthlyLimitDollars ?? null,
               hard_limit_dollars: spend?.hardLimitOverrideDollars ?? null,
               overage_total_cents: spend?.spendCents ?? 0,
@@ -314,6 +330,6 @@ export const cursorAdapter: ProviderAdapter = {
       // Admin API may not be available (non-enterprise teams)
     }
 
-    return records;
+    return { records, cursorDau };
   },
 };

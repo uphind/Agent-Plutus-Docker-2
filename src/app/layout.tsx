@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Tokenear - AI Usage Analytics",
+  title: "Agent Plutus - AI Usage Analytics",
   description: "Enterprise AI usage analytics and cost management platform",
 };
 

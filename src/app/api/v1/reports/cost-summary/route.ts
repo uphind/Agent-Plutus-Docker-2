@@ -62,12 +62,34 @@ export async function GET(request: NextRequest) {
   `;
   const prevProvMap = new Map(prevByProvider.map((p) => [p.provider, p.total_cost]));
 
-  // Cost forecasting
+  // Cost forecasting using weighted moving average
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const dayOfMonth = now.getDate();
   const totalCurrentSpend = currentByDept.reduce((s, d) => s + d.total_cost, 0);
-  const dailyRate = dayOfMonth > 0 ? totalCurrentSpend / dayOfMonth : 0;
-  const projectedMonthEnd = dailyRate * daysInMonth;
+
+  const dailySpend = await prisma.$queryRaw<Array<{ day_num: number; spend: number }>>`
+    SELECT EXTRACT(DAY FROM date)::int AS day_num, SUM(cost_usd)::float AS spend
+    FROM usage_records
+    WHERE org_id = ${orgId} AND date >= ${monthStart}
+    GROUP BY date ORDER BY date
+  `;
+
+  let weightedDailyRate: number;
+  if (dailySpend.length > 1) {
+    let weightedSum = 0;
+    let weightTotal = 0;
+    dailySpend.forEach((d, i) => {
+      const weight = i + 1;
+      weightedSum += d.spend * weight;
+      weightTotal += weight;
+    });
+    weightedDailyRate = weightedSum / weightTotal;
+  } else {
+    weightedDailyRate = dayOfMonth > 0 ? totalCurrentSpend / dayOfMonth : 0;
+  }
+
+  const daysRemaining = daysInMonth - dayOfMonth;
+  const projectedMonthEnd = totalCurrentSpend + weightedDailyRate * daysRemaining;
 
   return NextResponse.json({
     period: { month: now.getMonth() + 1, year: now.getFullYear(), dayOfMonth, daysInMonth },
@@ -96,9 +118,9 @@ export async function GET(request: NextRequest) {
     })),
     forecast: {
       currentSpend: totalCurrentSpend,
-      dailyRate,
+      dailyRate: weightedDailyRate,
       projectedMonthEnd,
-      daysRemaining: daysInMonth - dayOfMonth,
+      daysRemaining,
     },
   });
 }

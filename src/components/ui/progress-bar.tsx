@@ -23,12 +23,16 @@ export function ProgressBar({
   const displayPct = Math.round(pct * 10) / 10;
   const fillPct = Math.min(pct, 100);
 
-  const barColor =
+  const barHex =
     pct >= 100
-      ? "bg-red-500"
-      : pct >= alertThreshold
-        ? "bg-amber-500"
-        : "bg-emerald-500";
+      ? "#ef4444"
+      : pct >= 90
+        ? "#f97316"
+        : pct >= alertThreshold
+          ? "#f59e0b"
+          : pct >= 50
+            ? "#eab308"
+            : "#10b981";
 
   const heights = { sm: "h-1.5", md: "h-2.5", lg: "h-3.5" };
 
@@ -36,15 +40,15 @@ export function ProgressBar({
     <div className={cn("w-full", className)}>
       <div className={cn("w-full rounded-full bg-muted overflow-hidden", heights[size])}>
         <div
-          className={cn("rounded-full transition-all duration-500", barColor, heights[size])}
-          style={{ width: `${fillPct}%` }}
+          className={cn("rounded-full transition-all duration-500", heights[size])}
+          style={{ width: `${fillPct}%`, backgroundColor: barHex }}
         />
       </div>
       {showLabel && (
         <div className="flex justify-between mt-1">
           <span className={cn(
             "text-xs font-medium",
-            pct >= 100 ? "text-red-600" : pct >= alertThreshold ? "text-amber-600" : "text-muted-foreground"
+            pct >= 100 ? "text-red-600" : pct >= 90 ? "text-orange-600" : pct >= alertThreshold ? "text-amber-600" : "text-muted-foreground"
           )}>
             {displayPct}%
           </span>
