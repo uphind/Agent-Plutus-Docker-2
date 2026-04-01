@@ -123,6 +123,79 @@ export const api = {
     a.click();
     URL.revokeObjectURL(url);
   },
+  getExportData: async (filters: {
+    days?: number;
+    startDate?: string;
+    endDate?: string;
+    departments?: string[];
+    teams?: string[];
+    providers?: string[];
+  }) => {
+    const qs = new URLSearchParams({ format: "json" });
+    if (filters.startDate && filters.endDate) {
+      qs.set("startDate", filters.startDate);
+      qs.set("endDate", filters.endDate);
+    } else {
+      qs.set("days", String(filters.days ?? 30));
+    }
+    filters.departments?.forEach((d) => qs.append("department", d));
+    filters.teams?.forEach((t) => qs.append("team", t));
+    filters.providers?.forEach((p) => qs.append("provider", p));
+    return apiFetch(`/reports/export?${qs}`);
+  },
+  exportFiltered: async (filters: {
+    days?: number;
+    startDate?: string;
+    endDate?: string;
+    departments?: string[];
+    teams?: string[];
+    providers?: string[];
+  }) => {
+    const qs = new URLSearchParams();
+    if (filters.startDate && filters.endDate) {
+      qs.set("startDate", filters.startDate);
+      qs.set("endDate", filters.endDate);
+    } else {
+      qs.set("days", String(filters.days ?? 30));
+    }
+    filters.departments?.forEach((d) => qs.append("department", d));
+    filters.teams?.forEach((t) => qs.append("team", t));
+    filters.providers?.forEach((p) => qs.append("provider", p));
+    const res = await apiRaw(`/reports/export?${qs}`);
+    if (!res.ok) throw new Error("Export failed");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const label = filters.startDate && filters.endDate
+      ? `${filters.startDate}_${filters.endDate}`
+      : `${filters.days ?? 30}d`;
+    a.download = `agent-plutus-usage-${label}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  // ROI
+  getRoi: (days = 30) => apiFetch(`/analytics/roi?days=${days}`),
+
+  // Forecasting
+  getForecast: (historyDays = 90, forecastDays = 30) =>
+    apiFetch(`/analytics/forecast?historyDays=${historyDays}&forecastDays=${forecastDays}`),
+
+  // Seat Optimization
+  getSeatOptimization: (days = 30) => apiFetch(`/analytics/seat-optimization?days=${days}`),
+
+  // Chargeback
+  getChargeback: (month: string) => apiFetch(`/reports/chargeback?month=${month}`),
+
+  // Benchmarks
+  getBenchmarks: () => apiFetch("/analytics/benchmarks"),
+
+  // Contract Intelligence
+  getContractIntel: () => apiFetch("/analytics/contract-intel"),
+
+  // Provider Health
+  getProviderHealth: () => apiFetch("/analytics/provider-health"),
 
   // Providers
   getProviders: () => apiFetch("/providers"),

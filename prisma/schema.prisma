@@ -35,6 +35,8 @@ model Department {
   name           String
   monthlyBudget  Decimal? @map("monthly_budget") @db.Decimal(12, 2)
   alertThreshold Int      @default(80) @map("alert_threshold")
+  costCenter     String?  @map("cost_center")
+  glCode         String?  @map("gl_code")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
@@ -45,6 +47,33 @@ model Department {
   @@unique([orgId, name])
   @@index([orgId])
   @@map("departments")
+}
+
+model BenchmarkSnapshot {
+  id                   String   @id @default(uuid())
+  date                 DateTime @db.Date
+  companySize          String   @map("company_size")
+  medianCostPerDev     Decimal  @map("median_cost_per_dev") @db.Decimal(12, 2)
+  medianAcceptRate     Decimal  @map("median_accept_rate") @db.Decimal(5, 4)
+  medianCostPerLine    Decimal  @map("median_cost_per_line") @db.Decimal(12, 6)
+  providerMix          Json     @map("provider_mix")
+  sampleSize           Int      @map("sample_size")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  @@unique([date, companySize])
+  @@map("benchmark_snapshots")
+}
+
+model ChargebackReport {
+  id           String   @id @default(uuid())
+  orgId        String   @map("org_id")
+  month        String
+  generatedAt  DateTime @default(now()) @map("generated_at")
+  data         Json
+  totalCost    Decimal  @map("total_cost") @db.Decimal(12, 2)
+
+  @@index([orgId, month])
+  @@map("chargeback_reports")
 }
 
 model Team {

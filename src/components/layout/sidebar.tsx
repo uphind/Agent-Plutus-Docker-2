@@ -18,6 +18,13 @@ import {
   ChevronRight,
   LogOut,
   Compass,
+  Trophy,
+  ChartLine,
+  Receipt,
+  Armchair,
+  BarChart3,
+  ShieldCheck,
+  ScrollText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { signOutAction } from "@/app/actions/auth";
@@ -38,18 +45,25 @@ const navSections = [
     ],
   },
   {
-    label: "ANALYTICS",
+    label: "INSIGHTS",
     items: [
-      { name: "Models", href: "/dashboard/models", icon: Boxes },
+      { name: "ROI", href: "/dashboard/roi", icon: Trophy },
+      { name: "Forecasting", href: "/dashboard/forecasting", icon: ChartLine },
+      { name: "Seat Optimization", href: "/dashboard/seat-optimization", icon: Armchair },
       { name: "Analytics", href: "/dashboard/analytics", icon: TrendingUp },
+      { name: "Models", href: "/dashboard/models", icon: Boxes },
       { name: "Explorer", href: "/dashboard/explorer", icon: Compass },
       { name: "Reports", href: "/dashboard/reports", icon: FileBarChart },
+      { name: "Chargeback", href: "/dashboard/chargeback", icon: Receipt },
+      { name: "Suggestions", href: "/dashboard/suggestions", icon: Lightbulb },
     ],
   },
   {
-    label: "INSIGHTS",
+    label: "INTELLIGENCE",
     items: [
-      { name: "Suggestions", href: "/dashboard/suggestions", icon: Lightbulb },
+      { name: "Benchmarks", href: "/dashboard/benchmarks", icon: BarChart3 },
+      { name: "Contract Intel", href: "/dashboard/contract-intel", icon: ScrollText },
+      { name: "Provider Health", href: "/dashboard/provider-health", icon: ShieldCheck },
     ],
   },
   {

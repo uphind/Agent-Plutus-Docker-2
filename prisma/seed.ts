@@ -90,15 +90,19 @@ async function main() {
   }
 
   /* ─── Departments ─── */
-  const deptBudgets: Record<string, number> = {
-    Engineering: 5000, Product: 2000, Design: 1500, Marketing: 200, Sales: 150,
+  const deptDefs: Record<string, { budget: number; costCenter: string; glCode: string }> = {
+    Engineering: { budget: 5000, costCenter: "CC-1001", glCode: "6100-AI" },
+    Product:     { budget: 2000, costCenter: "CC-1002", glCode: "6200-AI" },
+    Design:      { budget: 1500, costCenter: "CC-1003", glCode: "6300-AI" },
+    Marketing:   { budget: 200,  costCenter: "CC-2001", glCode: "7100-AI" },
+    Sales:       { budget: 150,  costCenter: "CC-2002", glCode: "7200-AI" },
   };
   const deptMap = new Map<string, string>();
-  for (const [name, budget] of Object.entries(deptBudgets)) {
+  for (const [name, def] of Object.entries(deptDefs)) {
     const dept = await prisma.department.upsert({
       where: { orgId_name: { orgId, name } },
-      create: { orgId, name, monthlyBudget: budget, alertThreshold: 80 },
-      update: { monthlyBudget: budget },
+      create: { orgId, name, monthlyBudget: def.budget, alertThreshold: 80, costCenter: def.costCenter, glCode: def.glCode },
+      update: { monthlyBudget: def.budget, costCenter: def.costCenter, glCode: def.glCode },
     });
     deptMap.set(name, dept.id);
   }

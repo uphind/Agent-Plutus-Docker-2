@@ -13,6 +13,7 @@ import { SkeletonCard, SkeletonTable } from "@/components/ui/skeleton";
 import { api } from "@/lib/dashboard-api";
 import { formatCurrency, formatTokens, formatNumber, PROVIDER_LABELS, PROVIDER_COLORS } from "@/lib/utils";
 import Link from "next/link";
+import { ExportModal } from "@/components/export-modal";
 import {
   Download, TrendingUp, TrendingDown, DollarSign, Calendar, Target,
   ChevronDown, ChevronRight, AlertCircle, UserX,
@@ -43,7 +44,7 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState(searchParams.get("tab") ?? "cost");
-  const [exporting, setExporting] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
   useEffect(() => {
     const urlTab = searchParams.get("tab");
@@ -66,17 +67,6 @@ export default function ReportsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleExport = async (days: number) => {
-    setExporting(true);
-    try {
-      await api.exportCsv(days);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Export failed");
-    } finally {
-      setExporting(false);
-    }
-  };
-
   if (error && !costData) {
     return (
       <div>
@@ -94,18 +84,14 @@ export default function ReportsPage() {
         title="Reports"
         description="Cost analysis, budget variance, and usage insights"
         action={
-          <div className="flex gap-2">
-            <Button variant="secondary" size="sm" onClick={() => handleExport(30)} disabled={exporting}>
-              <Download className="h-3.5 w-3.5" />
-              Export 30d CSV
-            </Button>
-            <Button variant="secondary" size="sm" onClick={() => handleExport(90)} disabled={exporting}>
-              <Download className="h-3.5 w-3.5" />
-              Export 90d CSV
-            </Button>
-          </div>
+          <Button variant="secondary" size="sm" onClick={() => setExportOpen(true)}>
+            <Download className="h-3.5 w-3.5" />
+            Export
+          </Button>
         }
       />
+
+      <ExportModal open={exportOpen} onClose={() => setExportOpen(false)} />
 
       <Tabs
         tabs={[
