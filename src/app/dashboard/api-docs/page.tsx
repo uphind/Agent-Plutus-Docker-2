@@ -121,7 +121,7 @@ const PROVIDERS: Record<ProviderKey, {
     authDescription: "Organization Admin API Key — created via POST /organization/admin_api_keys (separate from project keys, cannot be used for inference)",
     authKeyFormat: "sk-admin-...",
     description: "Agent Plutus uses the OpenAI Organization API to pull per-user, per-model token consumption, dollar costs, and audit data. Admin keys are managed via the Organization Admin API Keys endpoint and are separate from project-level inference keys.",
-    docsUrl: "https://developers.openai.com/api/reference/resources/organization",
+    docsUrl: "https://developers.openai.com/api/reference/resources/organization/subresources/audit_logs/subresources/usage",
     endpoints: [
       {
         method: "GET",
