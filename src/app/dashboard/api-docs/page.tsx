@@ -118,15 +118,15 @@ const PROVIDERS: Record<ProviderKey, {
     name: "OpenAI",
     color: "bg-green-500/10 text-green-600 border-green-500/20",
     baseUrl: "https://api.openai.com/v1",
-    authDescription: "Admin API Key (created via admin API key endpoint, not standard project keys)",
+    authDescription: "Organization Admin API Key — created via POST /organization/admin_api_keys (separate from project keys, cannot be used for inference)",
     authKeyFormat: "sk-admin-...",
-    description: "Agent Plutus uses the OpenAI Organization Usage API to pull per-user, per-model token consumption and cost data. Admin keys are separate from inference keys and cannot be used for chat completions.",
-    docsUrl: "https://platform.openai.com/docs/api-reference/usage",
+    description: "Agent Plutus uses the OpenAI Organization API to pull per-user, per-model token consumption, dollar costs, and audit data. Admin keys are managed via the Organization Admin API Keys endpoint and are separate from project-level inference keys.",
+    docsUrl: "https://developers.openai.com/api/reference/resources/organization",
     endpoints: [
       {
         method: "GET",
         path: "/organization/usage/completions",
-        description: "Get token usage for chat/text completions grouped by model, user, and API key",
+        description: "Get token usage for chat/text completions grouped by model, user, API key, and project",
         headers: {
           "Authorization": "Bearer sk-admin-YOUR_ADMIN_KEY",
         },
@@ -137,7 +137,9 @@ const PROVIDERS: Record<ProviderKey, {
           { name: "group_by[]", description: "project_id, user_id, api_key_id, model, batch, service_tier" },
           { name: "models[]", description: "Filter by model names" },
           { name: "user_ids[]", description: "Filter by user IDs" },
-          { name: "limit, page", description: "Pagination (max 31 buckets for 1d)" },
+          { name: "project_ids[]", description: "Filter by project IDs" },
+          { name: "api_key_ids[]", description: "Filter by API key IDs" },
+          { name: "limit, page", description: "Pagination (max 1440 for 1m, 168 for 1h, 31 for 1d)" },
         ],
         response: JSON.stringify({
           object: "page",
@@ -162,7 +164,7 @@ const PROVIDERS: Record<ProviderKey, {
           }],
           has_more: false
         }, null, 2),
-        notes: "Agent Plutus calls with group_by[]=model&group_by[]=user_id&group_by[]=api_key_id. Also available: /usage/embeddings, /usage/images, /usage/audio_speeches.",
+        notes: "Agent Plutus calls with group_by[]=model&group_by[]=user_id&group_by[]=api_key_id. Additional usage endpoints available under the same Organization API: /usage/embeddings, /usage/images, /usage/audio_speeches, /usage/audio_transcriptions, /usage/moderations, /usage/vector_stores, /usage/code_interpreter_sessions.",
         usedFor: "Per-user token usage, requests, batch status, audio tokens → usage_records table",
       },
       {
@@ -177,6 +179,7 @@ const PROVIDERS: Record<ProviderKey, {
           { name: "end_time", description: "Unix timestamp in seconds" },
           { name: "bucket_width", description: 'Only "1d" supported' },
           { name: "group_by[]", description: "project_id, line_item" },
+          { name: "project_ids[]", description: "Filter by project IDs" },
           { name: "limit", description: "1-180, default 7" },
         ],
         response: JSON.stringify({
@@ -195,6 +198,90 @@ const PROVIDERS: Record<ProviderKey, {
         }, null, 2),
         notes: "Amount is in USD (not cents). Agent Plutus matches line_item to model names to merge costs with usage records.",
         usedFor: "Dollar costs per model → merged into usage_records.cost_usd",
+      },
+      {
+        method: "GET",
+        path: "/organization/audit_logs",
+        description: "Retrieve organization audit log events for security monitoring and compliance",
+        headers: {
+          "Authorization": "Bearer sk-admin-YOUR_ADMIN_KEY",
+        },
+        queryParams: [
+          { name: "effective_at[gte]", description: "Filter events after this Unix timestamp" },
+          { name: "effective_at[lte]", description: "Filter events before this Unix timestamp" },
+          { name: "project_ids[]", description: "Filter by project IDs" },
+          { name: "event_types[]", description: "Filter by event type (e.g. api_key.created, project.updated)" },
+          { name: "actor_ids[]", description: "Filter by actor user or service account IDs" },
+          { name: "limit, after, before", description: "Cursor-based pagination" },
+        ],
+        response: JSON.stringify({
+          object: "list",
+          data: [{
+            id: "audit_log-abc123",
+            type: "api_key.created",
+            effective_at: 1742169600,
+            project: { id: "proj_abc123", name: "Production" },
+            actor: {
+              type: "user",
+              user: { id: "user-abc123", email: "admin@company.com" }
+            }
+          }],
+          has_more: false
+        }, null, 2),
+        notes: "Agent Plutus can use audit logs to track API key creation/deletion, project changes, and user management events for security dashboards.",
+        usedFor: "Security & compliance monitoring → sync_logs, notifications",
+      },
+      {
+        method: "GET",
+        path: "/organization/users",
+        description: "List all users in the organization with their roles",
+        headers: {
+          "Authorization": "Bearer sk-admin-YOUR_ADMIN_KEY",
+        },
+        queryParams: [
+          { name: "limit", description: "Number of users to return (default 20)" },
+          { name: "after", description: "Cursor for pagination" },
+        ],
+        response: JSON.stringify({
+          object: "list",
+          data: [{
+            object: "organization.user",
+            id: "user-abc123",
+            name: "Alice Chen",
+            email: "alice.chen@company.com",
+            role: "reader",
+            added_at: 1709251200
+          }],
+          has_more: false
+        }, null, 2),
+        notes: "Agent Plutus uses this to map user_id fields from usage data back to real user names and emails for attribution in the org directory.",
+        usedFor: "User directory sync → org_users table mapping for usage attribution",
+      },
+      {
+        method: "GET",
+        path: "/organization/projects",
+        description: "List all projects in the organization",
+        headers: {
+          "Authorization": "Bearer sk-admin-YOUR_ADMIN_KEY",
+        },
+        queryParams: [
+          { name: "limit", description: "Number of projects to return" },
+          { name: "after", description: "Cursor for pagination" },
+          { name: "include_archived", description: "Include archived projects (default false)" },
+        ],
+        response: JSON.stringify({
+          object: "list",
+          data: [{
+            id: "proj_abc123",
+            object: "organization.project",
+            name: "Production Backend",
+            created_at: 1709251200,
+            status: "active"
+          }],
+          has_more: false
+        }, null, 2),
+        notes: "Projects help segment usage by team or application. Agent Plutus can map project_ids from usage/costs data to project names for reporting.",
+        usedFor: "Project discovery → team/department mapping in cost attribution",
       },
     ],
   },
