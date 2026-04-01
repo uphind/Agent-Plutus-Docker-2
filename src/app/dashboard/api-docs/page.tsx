@@ -199,76 +199,133 @@ const PROVIDERS: Record<ProviderKey, {
     ],
   },
   gemini: {
-    name: "Google Gemini",
+    name: "Google Vertex AI",
     color: "bg-blue-500/10 text-blue-600 border-blue-500/20",
-    baseUrl: "https://generativelanguage.googleapis.com",
-    authDescription: "API Key (Google AI Studio) or OAuth 2.0 / Service Account (Vertex AI)",
-    authKeyFormat: "AIza...",
-    description: "Google AI Studio does not provide a programmatic usage/analytics API. Agent Plutus validates the API key and can list available models. For cost tracking, Google Cloud Billing BigQuery export is recommended.",
-    docsUrl: "https://cloud.google.com/billing/docs/how-to/export-data-bigquery",
-    limitations: "No direct usage API exists for Google AI Studio. Billing data requires Google Cloud BigQuery export. Agent Plutus currently validates the API key only — full usage sync requires Vertex AI with BigQuery billing export configured.",
+    baseUrl: "https://us-central1-aiplatform.googleapis.com",
+    authDescription: "GCP Service Account JSON key with roles: Vertex AI User, Monitoring Viewer, BigQuery Data Viewer, Billing Account Viewer",
+    authKeyFormat: '{"project_id": "...", "client_email": "...", "private_key": "..."}',
+    description: "Agent Plutus connects to Vertex AI (Google Cloud's enterprise AI platform) using a GCP Service Account. Usage metrics come from Cloud Monitoring API, and cost/billing data comes from BigQuery billing export. This is the enterprise path — not Google AI Studio.",
+    docsUrl: "https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-observability",
     endpoints: [
       {
-        method: "GET",
-        path: "/v1beta/models",
-        description: "List available Gemini models (used to validate API key)",
+        method: "POST",
+        path: "/v3/projects/{project}/timeSeries:query",
+        description: "Query Cloud Monitoring for Vertex AI prediction metrics (requests, latency, token throughput)",
         headers: {
-          "x-goog-api-key": "AIza-YOUR_API_KEY",
+          "Authorization": "Bearer ya29.YOUR_SERVICE_ACCOUNT_TOKEN",
+          "Content-Type": "application/json",
         },
-        response: JSON.stringify({
-          models: [
-            {
-              name: "models/gemini-2.5-pro",
-              displayName: "Gemini 2.5 Pro",
-              inputTokenLimit: 1048576,
-              outputTokenLimit: 65536,
-              supportedGenerationMethods: ["generateContent"]
-            },
-            {
-              name: "models/gemini-2.5-flash",
-              displayName: "Gemini 2.5 Flash",
-              inputTokenLimit: 1048576,
-              outputTokenLimit: 65536,
-              supportedGenerationMethods: ["generateContent"]
-            }
-          ]
+        queryParams: [
+          { name: "project", description: "GCP project ID from service account", required: true },
+        ],
+        body: JSON.stringify({
+          query: `fetch aiplatform.googleapis.com/Endpoint
+| metric 'aiplatform.googleapis.com/prediction/online/response_count'
+| filter resource.labels.endpoint_id != ''
+| align rate(1m)
+| every 1d
+| group_by [metric.model_display_name], [value_response_count_aggregate: aggregate(value.response_count)]`
         }, null, 2),
-        notes: "Agent Plutus calls this endpoint to validate the API key on initial setup. No usage data is returned.",
-        usedFor: "API key validation only",
+        response: JSON.stringify({
+          timeSeriesData: [{
+            labelValues: [{ stringValue: "gemini-2.5-pro" }],
+            pointData: [{
+              timeInterval: {
+                startTime: "2026-03-15T00:00:00Z",
+                endTime: "2026-03-16T00:00:00Z"
+              },
+              values: [{ int64Value: "1250" }]
+            }]
+          }]
+        }, null, 2),
+        notes: "Base URL is monitoring.googleapis.com/v3. Available metrics include prediction/online/response_count, prediction/online/prediction_latencies, prediction/online/error_count. Token-level usage requires BigQuery billing export.",
+        usedFor: "Request counts, error rates, latency per model → operational health monitoring",
+      },
+      {
+        method: "GET",
+        path: "/v1/billingAccounts/{billing_account_id}/projects",
+        description: "List projects under a billing account to discover Vertex AI usage",
+        headers: {
+          "Authorization": "Bearer ya29.YOUR_SERVICE_ACCOUNT_TOKEN",
+        },
+        queryParams: [
+          { name: "billing_account_id", description: "GCP billing account ID (e.g. 01A2B3-C4D5E6-F7G8H9)", required: true },
+        ],
+        response: JSON.stringify({
+          projectBillingInfo: [{
+            name: "billingAccounts/01A2B3-C4D5E6-F7G8H9/projects/my-ai-project",
+            projectId: "my-ai-project",
+            billingAccountName: "billingAccounts/01A2B3-C4D5E6-F7G8H9",
+            billingEnabled: true
+          }]
+        }, null, 2),
+        notes: "Base URL is cloudbilling.googleapis.com. Agent Plutus uses this to discover which projects are linked to the billing account for cost attribution.",
+        usedFor: "Project discovery for billing attribution",
       },
       {
         method: "SQL",
         path: "BigQuery: gcp_billing_export_v1_XXXXXX",
-        description: "Query Google Cloud billing export for Vertex AI / Gemini usage and costs",
+        description: "Query billing export for per-model token usage and dollar costs. This is the primary source for Gemini usage data.",
         headers: {
-          "Authorization": "Bearer ya29.YOUR_OAUTH_TOKEN (Service Account)",
+          "Authorization": "Bearer ya29.YOUR_SERVICE_ACCOUNT_TOKEN",
         },
         body: `SELECT
-  service.description,
   sku.description AS model_sku,
   project.id AS project_id,
-  SUM(usage.amount) AS total_usage,
+  labels.value AS user_label,
+  SUM(usage.amount) AS total_tokens,
   usage.unit,
   SUM(cost) AS total_cost,
-  currency
+  SUM(IFNULL(
+    (SELECT SUM(c.amount) FROM UNNEST(credits) c),
+    0)) AS total_credits,
+  currency,
+  invoice.month
 FROM \`project.dataset.gcp_billing_export_v1_XXXXXX\`
+LEFT JOIN UNNEST(labels) AS labels
+  ON labels.key = 'user'
 WHERE service.description = 'Vertex AI API'
-  AND _PARTITIONTIME >= '2026-03-01'
-GROUP BY 1, 2, 3, 5, 7
+  AND sku.description LIKE '%Gemini%'
+  AND usage_start_time >= '2026-03-01'
+GROUP BY 1, 2, 3, 5, 8, 9
 ORDER BY total_cost DESC`,
         response: JSON.stringify([
           {
-            "service_description": "Vertex AI API",
-            "model_sku": "Gemini 2.5 Pro Online Prediction Input",
-            "project_id": "my-ai-project",
-            "total_usage": 15000000,
-            "unit": "count",
-            "total_cost": 18.75,
-            "currency": "USD"
+            model_sku: "Gemini 2.5 Pro Online Prediction Input (text, image, video ≤ 200k tokens)",
+            project_id: "my-ai-project",
+            user_label: "team-platform",
+            total_tokens: 15000000,
+            unit: "count",
+            total_cost: 18.75,
+            total_credits: -2.50,
+            currency: "USD",
+            month: "202603"
+          },
+          {
+            model_sku: "Gemini 2.5 Pro Online Prediction Output",
+            project_id: "my-ai-project",
+            user_label: "team-platform",
+            total_tokens: 4200000,
+            unit: "count",
+            total_cost: 42.00,
+            total_credits: 0,
+            currency: "USD",
+            month: "202603"
+          },
+          {
+            model_sku: "Gemini 2.5 Flash Online Prediction Input (text, image, video)",
+            project_id: "my-ai-project",
+            user_label: "team-frontend",
+            total_tokens: 28000000,
+            unit: "count",
+            total_cost: 7.00,
+            total_credits: 0,
+            currency: "USD",
+            month: "202603"
           }
         ], null, 2),
-        notes: "Requires Cloud Billing export to BigQuery. SKU descriptions map to models (e.g. 'Gemini 2.5 Pro Online Prediction Input'). Future integration planned.",
-        usedFor: "Token usage and costs per model (via BigQuery) — planned integration",
+        notes: "Requires Cloud Billing export to BigQuery (enable in Cloud Console > Billing > Billing export). SKU descriptions contain model names (e.g. 'Gemini 2.5 Pro') and distinguish Input vs Output tokens. GCP labels can be used for team/user attribution. Agent Plutus parses SKU descriptions to extract model name and token direction.",
+        usedFor: "Per-model input/output token counts and dollar costs → usage_records table",
       },
     ],
   },
