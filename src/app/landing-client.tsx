@@ -155,45 +155,10 @@ export function LandingClient() {
                   <span className="text-brand">Cost Intelligence</span>
                 </h1>
 
-                <p className="text-sm sm:text-base text-muted-foreground max-w-lg mb-8 leading-relaxed">
+                <p className="text-sm sm:text-base text-muted-foreground max-w-lg mb-10 leading-relaxed">
                   Monitor, manage, and optimise your organisation&apos;s AI
                   spending across every provider, team, and user.
                 </p>
-
-                <div className="flex flex-col sm:flex-row items-center gap-2.5 mb-10">
-                  <Link
-                    href="/dashboard"
-                    className="inline-flex items-center gap-2 rounded-lg bg-brand px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-light active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                  >
-                    View Demo
-                    <ArrowRight className="h-4 w-4" />
-                  </Link>
-
-                  <div className="relative">
-                    <button
-                      onClick={() => setShowComingSoon((v) => !v)}
-                      onBlur={() => setShowComingSoon(false)}
-                      className="inline-flex items-center gap-2 rounded-lg border border-border px-6 py-2.5 text-sm font-semibold text-foreground hover:bg-muted transition-colors cursor-default"
-                    >
-                      <Lock className="h-3.5 w-3.5 text-muted-foreground" />
-                      Log In
-                    </button>
-                    {showComingSoon && (
-                      <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-foreground px-2.5 py-1 text-[11px] font-semibold text-primary-foreground shadow-lg z-50">
-                        Coming Soon
-                        <div className="absolute -top-1 left-1/2 -translate-x-1/2 h-2 w-2 rotate-45 bg-foreground" />
-                      </div>
-                    )}
-                  </div>
-
-                  <a
-                    href="mailto:contact@agentplutus.com"
-                    className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    <Mail className="h-4 w-4" />
-                    Contact Us
-                  </a>
-                </div>
 
                 {/* Provider tags */}
                 <div className="flex flex-wrap items-center justify-center gap-1.5">
