@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Sidebar } from "./sidebar";
 import { TopBar } from "./top-bar";
 import { cn } from "@/lib/utils";
+import { AiChatbot } from "@/components/ai-chatbot";
 
 interface DashboardShellProps {
   user: { name: string | null; email: string | null } | null;
@@ -31,6 +32,8 @@ export function DashboardShell({ user, children }: DashboardShellProps) {
           </main>
         </div>
       </div>
+
+      <AiChatbot />
     </div>
   );
 }
