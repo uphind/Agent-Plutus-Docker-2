@@ -6,8 +6,9 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { api } from "@/lib/dashboard-api";
-import { RefreshCw, Users, Code2 } from "lucide-react";
+import { RefreshCw, Users, Code2, Bot, Eye, EyeOff } from "lucide-react";
 
 const INTERVAL_OPTIONS = [
   { value: "1", label: "Every 1 hour" },
@@ -17,6 +18,37 @@ const INTERVAL_OPTIONS = [
   { value: "12", label: "Every 12 hours" },
   { value: "24", label: "Every 24 hours" },
 ];
+
+const LLM_PROVIDER_OPTIONS = [
+  { value: "openai", label: "OpenAI" },
+  { value: "anthropic", label: "Anthropic" },
+  { value: "gemini", label: "Google Gemini" },
+];
+
+const DEFAULT_MODELS: Record<string, string> = {
+  openai: "gpt-4o-mini",
+  anthropic: "claude-sonnet-4-20250514",
+  gemini: "gemini-2.0-flash",
+};
+
+export interface AiAssistantConfig {
+  provider: string;
+  model: string;
+  apiKey: string;
+}
+
+export function loadAiConfig(): AiAssistantConfig {
+  if (typeof window === "undefined") return { provider: "openai", model: "gpt-4o-mini", apiKey: "" };
+  try {
+    const raw = localStorage.getItem("ai_assistant_config");
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore */ }
+  return { provider: "openai", model: "gpt-4o-mini", apiKey: "" };
+}
+
+function saveAiConfig(config: AiAssistantConfig) {
+  localStorage.setItem("ai_assistant_config", JSON.stringify(config));
+}
 
 interface Settings {
   organization: string;
@@ -33,6 +65,10 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [aiConfig, setAiConfig] = useState<AiAssistantConfig>({ provider: "openai", model: "gpt-4o-mini", apiKey: "" });
+  const [aiSaved, setAiSaved] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+
   const loadSettings = useCallback(async () => {
     try {
       const data = await api.getSettings();
@@ -45,6 +81,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     loadSettings();
+    setAiConfig(loadAiConfig());
   }, [loadSettings]);
 
   const handleSaveInterval = async () => {
@@ -175,6 +212,78 @@ export default function SettingsPage() {
               Users not included in the payload will be marked as inactive.
               Departments and teams are auto-created from the directory data.
             </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Bot className="h-4 w-4 text-muted-foreground" />
+            <CardTitle>AI Assistant</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Configure an LLM to power the AI assistant on the Suggestions page.
+            Your API key is stored locally in your browser and sent directly to the provider — it is never saved on our server.
+          </p>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Select
+              label="Provider"
+              options={LLM_PROVIDER_OPTIONS}
+              value={aiConfig.provider}
+              onChange={(e) => {
+                const provider = e.target.value;
+                setAiConfig((prev) => ({
+                  ...prev,
+                  provider,
+                  model: DEFAULT_MODELS[provider] ?? prev.model,
+                }));
+              }}
+            />
+            <Input
+              label="Model"
+              placeholder="e.g. gpt-4o-mini"
+              value={aiConfig.model}
+              onChange={(e) => setAiConfig((prev) => ({ ...prev, model: e.target.value }))}
+            />
+          </div>
+
+          <div className="relative">
+            <Input
+              label="API Key"
+              type={showApiKey ? "text" : "password"}
+              placeholder="sk-..."
+              value={aiConfig.apiKey}
+              onChange={(e) => setAiConfig((prev) => ({ ...prev, apiKey: e.target.value }))}
+            />
+            <button
+              type="button"
+              onClick={() => setShowApiKey(!showApiKey)}
+              className="absolute right-2.5 top-[34px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button
+              onClick={() => {
+                saveAiConfig(aiConfig);
+                setAiSaved(true);
+                setTimeout(() => setAiSaved(false), 3000);
+              }}
+              disabled={!aiConfig.apiKey.trim()}
+            >
+              Save
+            </Button>
+            {aiSaved && (
+              <p className="text-sm text-emerald-600 font-medium">
+                AI assistant configuration saved
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
