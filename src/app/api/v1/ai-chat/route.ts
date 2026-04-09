@@ -33,8 +33,8 @@ type SuggestionItem = {
 
 async function gatherSystemContext(orgId: string, clientSuggestions?: SuggestionItem[]) {
   const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
+  const startDate = thirtyDaysAgo;
 
   const [overview, modelBreakdown, userBreakdown, idleUsers, departmentBudgets] =
     await Promise.all([
@@ -54,7 +54,7 @@ async function gatherSystemContext(orgId: string, clientSuggestions?: Suggestion
           COALESCE(SUM(output_tokens), 0)::float AS total_output,
           COUNT(DISTINCT user_id)::int AS active_users
         FROM usage_records
-        WHERE org_id = ${orgId} AND date >= ${monthStart}
+        WHERE org_id = ${orgId} AND date >= ${startDate}
       `,
 
       prisma.$queryRaw<
@@ -71,7 +71,7 @@ async function gatherSystemContext(orgId: string, clientSuggestions?: Suggestion
                SUM(requests_count)::int AS total_requests,
                COUNT(DISTINCT user_id)::int AS user_count
         FROM usage_records
-        WHERE org_id = ${orgId} AND date >= ${monthStart} AND model IS NOT NULL
+        WHERE org_id = ${orgId} AND date >= ${startDate} AND model IS NOT NULL
         GROUP BY model, provider
         ORDER BY total_cost DESC
         LIMIT 20
@@ -94,7 +94,7 @@ async function gatherSystemContext(orgId: string, clientSuggestions?: Suggestion
                SUM(ur.requests_count)::int AS total_requests
         FROM usage_records ur
         JOIN org_users u ON ur.user_id = u.id
-        WHERE ur.org_id = ${orgId} AND ur.date >= ${monthStart}
+        WHERE ur.org_id = ${orgId} AND ur.date >= ${startDate}
         GROUP BY ur.user_id, u.name, u.email, u.department, u.team
         ORDER BY total_cost DESC
         LIMIT 30
@@ -125,7 +125,7 @@ async function gatherSystemContext(orgId: string, clientSuggestions?: Suggestion
                COUNT(DISTINCT u.id)::int AS user_count
         FROM departments d
         LEFT JOIN org_users u ON u.department_id = d.id
-        LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.date >= ${monthStart}
+        LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.date >= ${startDate}
         WHERE d.org_id = ${orgId}
         GROUP BY d.id, d.name, d.monthly_budget
         ORDER BY spent DESC
@@ -153,7 +153,7 @@ async function gatherSystemContext(orgId: string, clientSuggestions?: Suggestion
   };
 
   const lines: string[] = [
-    `=== Organization Usage Summary (Month to Date) ===`,
+    `=== Organization Usage Summary (Last 30 Days) ===`,
     `Total cost: $${ov.total_cost.toFixed(2)}`,
     `Total requests: ${ov.total_requests.toLocaleString()}`,
     `Input tokens: ${ov.total_input.toLocaleString()}`,
