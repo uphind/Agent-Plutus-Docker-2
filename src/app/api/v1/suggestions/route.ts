@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getOrgId } from "@/lib/org";
+import { processPreAggregated } from "@/lib/classifier";
 
 interface Suggestion {
   id: string;
-  category: "cost_optimization" | "budget_alerts" | "seat_management" | "efficiency";
+  category: "cost_optimization" | "budget_alerts" | "seat_management" | "efficiency" | "ai_classification";
   type: string;
   severity: "info" | "warning" | "critical";
   title: string;
@@ -13,28 +14,6 @@ interface Suggestion {
   affectedEntities: Array<{ type: string; id: string; name: string }>;
   linkTo?: string;
 }
-
-const EXPENSIVE_MODELS: Record<string, string> = {
-  "claude-3-opus-20240229": "claude-3-5-sonnet-20241022",
-  "claude-3-opus": "claude-3-5-sonnet",
-  "gpt-4o": "gpt-4o-mini",
-  "gpt-4-turbo": "gpt-4o-mini",
-  "gpt-4": "gpt-4o-mini",
-  "claude-opus-4": "claude-sonnet-4",
-};
-
-const MODEL_COST_PER_1K: Record<string, { input: number; output: number }> = {
-  "claude-3-opus-20240229": { input: 0.015, output: 0.075 },
-  "claude-3-opus": { input: 0.015, output: 0.075 },
-  "claude-3-5-sonnet-20241022": { input: 0.003, output: 0.015 },
-  "claude-3-5-sonnet": { input: 0.003, output: 0.015 },
-  "claude-opus-4": { input: 0.015, output: 0.075 },
-  "claude-sonnet-4": { input: 0.003, output: 0.015 },
-  "gpt-4o": { input: 0.0025, output: 0.01 },
-  "gpt-4o-mini": { input: 0.00015, output: 0.0006 },
-  "gpt-4-turbo": { input: 0.01, output: 0.03 },
-  "gpt-4": { input: 0.03, output: 0.06 },
-};
 
 export async function GET() {
   const orgId = await getOrgId();
@@ -76,69 +55,88 @@ export async function GET() {
     }
   }
 
-  // 2) Model substitution savings
-  const modelSpend = await prisma.$queryRaw<
+  // 2) AI Classification — dual model recommendations
+  const classifierData = await prisma.$queryRaw<
     Array<{
-      model: string; user_id: string; user_name: string;
-      total_cost: number; total_input: number; total_output: number;
-      team_id: string | null; team_name: string | null;
+      user_email: string; user_name: string; department: string; team: string;
+      provider: string; model: string;
+      total_requests: number; total_input: number; total_output: number;
+      total_cached: number; total_cost: number; active_days: number;
     }>
   >`
-    SELECT ur.model, ur.user_id, u.name AS user_name,
-           SUM(ur.cost_usd)::float AS total_cost,
+    SELECT u.email AS user_email, u.name AS user_name,
+           COALESCE(u.department, '') AS department, COALESCE(u.team, '') AS team,
+           ur.provider::text AS provider, COALESCE(ur.model, 'unknown') AS model,
+           SUM(ur.requests_count)::int AS total_requests,
            SUM(ur.input_tokens)::float AS total_input,
            SUM(ur.output_tokens)::float AS total_output,
-           u.team_id, t.name AS team_name
+           SUM(ur.cached_tokens)::float AS total_cached,
+           SUM(ur.cost_usd)::float AS total_cost,
+           COUNT(DISTINCT ur.date)::int AS active_days
     FROM usage_records ur
     JOIN org_users u ON ur.user_id = u.id
-    LEFT JOIN teams t ON u.team_id = t.id
     WHERE ur.org_id = ${orgId} AND ur.date >= ${thirtyDaysAgo} AND ur.model IS NOT NULL
-    GROUP BY ur.model, ur.user_id, u.name, u.team_id, t.name
-    HAVING SUM(ur.cost_usd)::float > 20
+    GROUP BY u.email, u.name, u.department, u.team, ur.provider, ur.model
+    HAVING SUM(ur.cost_usd)::float > 5
   `;
 
-  const modelSubGroups = new Map<string, typeof modelSpend>();
-  for (const row of modelSpend) {
-    const cheaperModel = Object.entries(EXPENSIVE_MODELS).find(([exp]) =>
-      row.model?.includes(exp)
+  if (classifierData.length > 0) {
+    const classifiedRows = classifierData.map((r) => ({
+      user_email: r.user_email,
+      user_name: r.user_name,
+      department: r.department,
+      team: r.team,
+      provider: r.provider,
+      model: r.model,
+      input_tokens: r.total_input,
+      output_tokens: r.total_output,
+      cached_tokens: r.total_cached,
+      cost_usd: r.total_cost,
+      requests_count: r.total_requests,
+      date: undefined,
+    }));
+
+    const { rows: recommended } = processPreAggregated(
+      classifiedRows as unknown as Array<Record<string, unknown>>
     );
-    if (cheaperModel) {
-      const key = row.model!;
-      if (!modelSubGroups.has(key)) modelSubGroups.set(key, []);
-      modelSubGroups.get(key)!.push(row);
+
+    const savingsRows = recommended
+      .filter((r) => r.is_cheaper_global || r.is_cheaper_same_vendor)
+      .sort((a, b) => (b.est_savings_global_usd ?? 0) - (a.est_savings_global_usd ?? 0));
+
+    const modelGroups = new Map<string, typeof savingsRows>();
+    for (const r of savingsRows) {
+      if (!modelGroups.has(r.model)) modelGroups.set(r.model, []);
+      modelGroups.get(r.model)!.push(r);
     }
-  }
 
-  for (const [expensiveModel, users] of modelSubGroups) {
-    const cheaperKey = Object.entries(EXPENSIVE_MODELS).find(([exp]) =>
-      expensiveModel.includes(exp)
-    )?.[1];
-    if (!cheaperKey) continue;
+    for (const [model, users] of modelGroups) {
+      const totalSav = users.reduce((s, u) => s + (u.est_savings_global_usd ?? 0), 0);
+      const totalCost = users.reduce((s, u) => s + u.total_cost_usd, 0);
+      if (totalSav < 5) continue;
 
-    const expCost = MODEL_COST_PER_1K[expensiveModel] ??
-      Object.entries(MODEL_COST_PER_1K).find(([k]) => expensiveModel.includes(k))?.[1];
-    const cheapCost = MODEL_COST_PER_1K[cheaperKey];
-    if (!expCost || !cheapCost) continue;
+      const topRec = users[0];
+      const globalTarget = topRec.recommendation_global;
+      const sameVendorTarget = topRec.recommendation_same_vendor;
 
-    const totalCurrent = users.reduce((s, u) => s + u.total_cost, 0);
-    const totalInput = users.reduce((s, u) => s + u.total_input, 0);
-    const totalOutput = users.reduce((s, u) => s + u.total_output, 0);
-    const cheaperCost = (totalInput / 1000) * cheapCost.input + (totalOutput / 1000) * cheapCost.output;
-    const savings = totalCurrent - cheaperCost;
+      let desc = `${users.length} user${users.length > 1 ? "s" : ""} spent $${totalCost.toFixed(0)} on ${model}.`;
+      if (globalTarget !== "\u2014") desc += ` Best cross-vendor: ${globalTarget}.`;
+      if (sameVendorTarget !== "\u2014" && sameVendorTarget !== globalTarget) {
+        desc += ` Same vendor: ${sameVendorTarget}.`;
+      }
 
-    if (savings > 10) {
       suggestions.push({
-        id: `model-sub-${expensiveModel}`,
-        category: "cost_optimization",
+        id: `ai-class-${model}`,
+        category: "ai_classification",
         type: "model_substitution",
-        severity: savings > 100 ? "warning" : "info",
-        title: `Switch ${users.length} user${users.length > 1 ? "s" : ""} from ${expensiveModel} to ${cheaperKey}`,
-        description: `Estimated savings: $${savings.toFixed(0)}/mo. These users spent $${totalCurrent.toFixed(0)} on ${expensiveModel} this month.`,
-        estimatedSavings: Math.round(savings),
-        affectedEntities: users.map((u) => ({
-          type: "user", id: u.user_id, name: u.user_name,
+        severity: totalSav > 100 ? "warning" : "info",
+        title: `Switch from ${model}: save ~$${totalSav.toFixed(0)}/mo`,
+        description: desc,
+        estimatedSavings: Math.round(totalSav),
+        affectedEntities: users.slice(0, 10).map((u) => ({
+          type: "user", id: u.user_email, name: u.user_name || u.user_email,
         })),
-        linkTo: "/dashboard/models",
+        linkTo: "/dashboard/classify",
       });
     }
   }

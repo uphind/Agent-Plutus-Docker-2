@@ -14,6 +14,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { SkeletonCard, SkeletonTable } from "@/components/ui/skeleton";
 import { api } from "@/lib/dashboard-api";
 import { formatCurrency, formatTokens, PROVIDER_LABELS } from "@/lib/utils";
+import { useTerminology } from "@/lib/terminology";
 import { getTeamIcon } from "@/lib/entity-icons";
 import {
   UsersRound, Users, Search, LayoutGrid, List,
@@ -40,6 +41,7 @@ type ViewMode = "grid" | "table";
 type StatusFilter = "" | "healthy" | "caution" | "warning" | "over_budget" | "no_budget";
 
 export default function TeamsPage() {
+  const { t } = useTerminology();
   const [teams, setTeams] = useState<TeamData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -149,7 +151,7 @@ export default function TeamsPage() {
   if (error) {
     return (
       <div>
-        <Header title="Teams" />
+        <Header title={t("teams")} />
         <Card className="p-8 text-center"><p className="text-destructive">{error}</p></Card>
       </div>
     );
@@ -157,7 +159,7 @@ export default function TeamsPage() {
 
   return (
     <div>
-      <Header title="Teams" description={`${teams.length} teams across ${departments.length} departments`} />
+      <Header title={t("teams")} description={`${teams.length} ${t("teams").toLowerCase()} across ${departments.length} ${t("departments").toLowerCase()}`} />
 
       {/* Toolbar */}
       <div className="space-y-3 mb-6">

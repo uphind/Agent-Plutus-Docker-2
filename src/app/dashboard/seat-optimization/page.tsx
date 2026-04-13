@@ -15,6 +15,8 @@ import {
   CheckCircle, XCircle, ChevronDown, ChevronUp,
   DollarSign, Layers,
 } from "lucide-react";
+import { TOOLTIPS } from "@/lib/tooltip-content";
+import { useTerminology } from "@/lib/terminology";
 
 interface SeatData {
   period: { days: number };
@@ -76,6 +78,7 @@ export default function SeatOptimizationPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("all");
   const [expandedRec, setExpandedRec] = useState<string | null>(null);
+  const { t } = useTerminology();
 
   useEffect(() => {
     setLoading(true);
@@ -88,7 +91,7 @@ export default function SeatOptimizationPage() {
   if (loading) {
     return (
       <div>
-        <Header title="Seat Optimization" description="Cross-provider utilization analysis and savings opportunities" />
+        <Header title={t("seat optimization")} description="Cross-provider utilization analysis and savings opportunities" />
         <div className="grid gap-4 grid-cols-2 lg:grid-cols-4 mb-6">
           {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
         </div>
@@ -107,7 +110,7 @@ export default function SeatOptimizationPage() {
   return (
     <div>
       <Header
-        title="Seat Optimization"
+        title={t("seat optimization")}
         description="Cross-provider utilization analysis and savings opportunities"
         action={
           <Select
@@ -127,35 +130,39 @@ export default function SeatOptimizationPage() {
       {/* KPIs */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4 mb-6">
         <StatCard
-          title="Total Seats"
+          title={`Total ${t("seats")}`}
           value={s.totalUsers}
           subtitle={`${s.highCount} active · ${s.idleCount} idle`}
           icon={Users}
+          tooltip={TOOLTIPS.totalSeats}
         />
         <StatCard
           title="Avg Utilization"
           value={`${(s.avgUtilization * 100).toFixed(0)}%`}
           subtitle="Across all users"
           icon={Armchair}
+          tooltip={TOOLTIPS.avgUtilization}
         />
         <StatCard
           title="Potential Savings"
           value={formatCurrency(s.totalEstimatedSavings)}
           subtitle={`${data.recommendations.length} recommendations`}
           icon={DollarSign}
+          tooltip={TOOLTIPS.potentialSavings}
         />
         <StatCard
           title="Multi-Provider Users"
           value={s.multiProviderCount}
           subtitle="Using 2+ providers"
           icon={Layers}
+          tooltip={TOOLTIPS.multiProviderUsers}
         />
       </div>
 
       {/* Engagement Distribution */}
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Engagement Distribution</CardTitle>
+          <CardTitle tooltip={TOOLTIPS.engagementDistribution}>Engagement Distribution</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-4 gap-3">
@@ -229,7 +236,7 @@ export default function SeatOptimizationPage() {
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>
-            {filter === "all" ? "All Users" : `${TIER_COLORS[filter]?.label} Users`}
+            {filter === "all" ? `All ${t("users")}` : `${TIER_COLORS[filter]?.label} ${t("users")}`}
             <span className="text-muted-foreground font-normal ml-2">({filteredUsers.length})</span>
           </CardTitle>
         </CardHeader>

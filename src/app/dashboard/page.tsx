@@ -13,8 +13,10 @@ import { ProgressBar } from "@/components/ui/progress-bar";
 import { SkeletonCard, SkeletonTable } from "@/components/ui/skeleton";
 import { api } from "@/lib/dashboard-api";
 import { formatCurrency, formatTokens, formatNumber, PROVIDER_LABELS } from "@/lib/utils";
+import { TOOLTIPS } from "@/lib/tooltip-content";
 import Image from "next/image";
-import { DollarSign, Zap, Users, Plug, Check, Boxes } from "lucide-react";
+import { DollarSign, Zap, Users, Plug, Check, Boxes, PieChart as PieChartIcon, BarChart3 } from "lucide-react";
+import { DistributionPie } from "@/components/charts/distribution-pie";
 import { getDepartmentIcon } from "@/lib/entity-icons";
 
 interface ComparisonMetric {
@@ -70,6 +72,7 @@ export default function OverviewPage() {
   const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [providerChartMode, setProviderChartMode] = useState<"bar" | "pie">("bar");
 
   useEffect(() => {
     setLoading(true);
@@ -162,6 +165,7 @@ export default function OverviewPage() {
               value={<>{formatCurrency(data.totals.costUsd)}<ComparisonBadge value={data.comparison?.cost.changePercent} /></>}
               subtitle={`Last ${days} days`}
               icon={DollarSign}
+              tooltip={TOOLTIPS.totalSpend}
             />
             <StatCard
               title="Total Tokens"
@@ -169,12 +173,13 @@ export default function OverviewPage() {
               subtitle={`${formatTokens(data.totals.inputTokens)} in / ${formatTokens(data.totals.outputTokens)} out`}
               icon={Zap}
             />
-            <StatCard title="Active Users" value={formatNumber(data.activeUsers)} subtitle="with recorded usage" icon={Users} />
+            <StatCard title="Active Users" value={formatNumber(data.activeUsers)} subtitle="with recorded usage" icon={Users} tooltip={TOOLTIPS.activeUsers} />
             <StatCard
               title="Requests"
               value={<>{formatNumber(data.totals.requestsCount)}<ComparisonBadge value={data.comparison?.requests.changePercent} /></>}
               subtitle="total API calls"
               icon={Plug}
+              tooltip={TOOLTIPS.totalRequests}
             />
           </div>
 
@@ -185,8 +190,38 @@ export default function OverviewPage() {
               <CardContent><SpendChart data={data.dailySpend} /></CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle>Spend by Provider</CardTitle></CardHeader>
-              <CardContent><ProviderChart data={data.byProvider} /></CardContent>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Spend by Provider</CardTitle>
+                  <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
+                    <button
+                      onClick={() => setProviderChartMode("bar")}
+                      className={`p-1.5 rounded-md transition-colors ${providerChartMode === "bar" ? "bg-card shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                      <BarChart3 className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setProviderChartMode("pie")}
+                      className={`p-1.5 rounded-md transition-colors ${providerChartMode === "pie" ? "bg-card shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                      <PieChartIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {providerChartMode === "bar" ? (
+                  <ProviderChart data={data.byProvider} />
+                ) : (
+                  <DistributionPie
+                    data={data.byProvider.map((p) => ({
+                      name: PROVIDER_LABELS[p.provider] ?? p.provider,
+                      value: Number(p._sum.costUsd ?? 0),
+                      color: ({ anthropic: "#D4A574", openai: "#10A37F", gemini: "#8E75B2", cursor: "#6366F1", vertex: "#4285F4" } as Record<string, string>)[p.provider],
+                    }))}
+                  />
+                )}
+              </CardContent>
             </Card>
           </div>
 

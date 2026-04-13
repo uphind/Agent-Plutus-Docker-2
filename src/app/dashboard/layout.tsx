@@ -1,5 +1,6 @@
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { DemoGate } from "@/components/demo-gate";
+import { TerminologyProvider } from "@/lib/terminology";
 import { auth } from "@/auth";
 
 export default async function DashboardLayout({
@@ -14,7 +15,9 @@ export default async function DashboardLayout({
 
   return (
     <DemoGate>
-      <DashboardShell user={user}>{children}</DashboardShell>
+      <TerminologyProvider>
+        <DashboardShell user={user}>{children}</DashboardShell>
+      </TerminologyProvider>
     </DemoGate>
   );
 }

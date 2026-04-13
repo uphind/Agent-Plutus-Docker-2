@@ -25,6 +25,9 @@ model Organization {
   syncLogs            SyncLog[]
   notifications       Notification[]
   cursorDau           CursorDau[]
+  terminologyOverrides TerminologyOverride[]
+  graphConfig         GraphConfig?
+  fieldMappings       FieldMapping[]
 
   @@map("organizations")
 }
@@ -244,4 +247,52 @@ model CursorDau {
   @@unique([orgId, date])
   @@index([orgId])
   @@map("cursor_dau")
+}
+
+model TerminologyOverride {
+  id         String   @id @default(uuid())
+  orgId      String   @map("org_id")
+  systemTerm String   @map("system_term")
+  customTerm String   @map("custom_term")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, systemTerm])
+  @@index([orgId])
+  @@map("terminology_overrides")
+}
+
+model GraphConfig {
+  id              String    @id @default(uuid())
+  orgId           String    @unique @map("org_id")
+  tenantId        String    @map("tenant_id")
+  clientId        String    @map("client_id")
+  encryptedSecret String    @map("encrypted_secret")
+  graphEndpoint   String    @default("https://graph.microsoft.com/v1.0") @map("graph_endpoint")
+  isActive        Boolean   @default(true) @map("is_active")
+  lastSyncAt      DateTime? @map("last_sync_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("graph_configs")
+}
+
+model FieldMapping {
+  id          String   @id @default(uuid())
+  orgId       String   @map("org_id")
+  entityType  String   @map("entity_type")
+  sourceField String   @map("source_field")
+  targetField String   @map("target_field")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, entityType, targetField])
+  @@index([orgId])
+  @@map("field_mappings")
 }

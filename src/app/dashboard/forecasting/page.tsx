@@ -12,10 +12,20 @@ import {
   ChartLine, TrendingUp, TrendingDown, AlertTriangle,
   Calendar, DollarSign, Calculator, SlidersHorizontal,
 } from "lucide-react";
+import { TOOLTIPS } from "@/lib/tooltip-content";
+import { useTerminology } from "@/lib/terminology";
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid,
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine, ComposedChart, Line,
 } from "recharts";
+
+interface DeptForecast {
+  departmentId: string;
+  department: string;
+  projected30d: number;
+  currentSpend: number;
+  growthRate: number;
+}
 
 interface ForecastData {
   period: { historyDays: number; forecastDays: number };
@@ -43,6 +53,7 @@ interface ForecastData {
     exhaustionDate: string | null;
     willExceed: boolean;
   }>;
+  departmentForecasts: DeptForecast[];
   currentMonth: { dayOfMonth: number; daysInMonth: number; daysRemaining: number };
 }
 
@@ -50,18 +61,27 @@ export default function ForecastingPage() {
   const [data, setData] = useState<ForecastData | null>(null);
   const [historyDays, setHistoryDays] = useState(90);
   const [forecastDays, setForecastDays] = useState(30);
+  const [departmentId, setDepartmentId] = useState("");
+  const [departments, setDepartments] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [whatIfUsers, setWhatIfUsers] = useState(0);
+  const { t } = useTerminology();
+
+  useEffect(() => {
+    api.getDepartments()
+      .then((d) => setDepartments(d.departments ?? []))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     setLoading(true);
     setError(null);
-    api.getForecast(historyDays, forecastDays)
+    api.getForecast(historyDays, forecastDays, departmentId || undefined)
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [historyDays, forecastDays]);
+  }, [historyDays, forecastDays, departmentId]);
 
   const chartData = useMemo(() => {
     if (!data) return [];
@@ -126,6 +146,16 @@ export default function ForecastingPage() {
         description="Predictive spend analysis and budget projections"
         action={
           <div className="flex items-center gap-3">
+            {departments.length > 0 && (
+              <Select
+                value={departmentId}
+                onChange={(e) => setDepartmentId(e.target.value)}
+                options={[
+                  { value: "", label: `All ${t("departments")}` },
+                  ...departments.map((d) => ({ value: d.id, label: d.name })),
+                ]}
+              />
+            )}
             <Select
               value={String(historyDays)}
               onChange={(e) => setHistoryDays(Number(e.target.value))}
@@ -168,24 +198,28 @@ export default function ForecastingPage() {
           value={formatCurrency(data.projectedTotal30d)}
           subtitle="Based on trend regression"
           icon={DollarSign}
+          tooltip={TOOLTIPS.projectedSpend}
         />
         <StatCard
           title="Daily Trend"
           value={`${data.regression.slope >= 0 ? "+" : ""}$${data.regression.slope.toFixed(2)}/day`}
           subtitle={`R² = ${data.regression.r2.toFixed(3)}`}
           icon={data.regression.slope >= 0 ? TrendingUp : TrendingDown}
+          tooltip={TOOLTIPS.dailyTrend}
         />
         <StatCard
           title="Week-over-Week"
           value={data.weeklyGrowthRate !== null ? `${data.weeklyGrowthRate >= 0 ? "+" : ""}${data.weeklyGrowthRate.toFixed(1)}%` : "N/A"}
           subtitle="Spend growth rate"
           icon={ChartLine}
+          tooltip={TOOLTIPS.weekOverWeek}
         />
         <StatCard
           title="Weekend Ratio"
           value={`${(data.seasonality.weekendRatio * 100).toFixed(0)}%`}
           subtitle={`Weekday avg: ${formatCurrency(data.seasonality.avgWeekday)}`}
           icon={Calendar}
+          tooltip={TOOLTIPS.weekendRatio}
         />
       </div>
 
@@ -372,6 +406,36 @@ export default function ForecastingPage() {
           </div>
         </CardContent>
       </Card>
+      {/* Department Forecast Comparison */}
+      {data.departmentForecasts && data.departmentForecasts.length > 0 && !departmentId && (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <DollarSign className="h-4 w-4 text-primary" />
+              {t("Department")} Forecast Comparison
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={Math.max(200, data.departmentForecasts.length * 40 + 40)}>
+              <BarChart
+                data={data.departmentForecasts}
+                layout="vertical"
+                margin={{ top: 5, right: 30, left: 0, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis type="number" tick={{ fontSize: 11, fill: "#6b7280" }} tickFormatter={(v: number) => `$${v.toFixed(0)}`} />
+                <YAxis type="category" dataKey="department" tick={{ fontSize: 11, fill: "#6b7280" }} width={120} />
+                <Tooltip
+                  contentStyle={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: "8px", fontSize: "12px" }}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  formatter={(value: any) => [formatCurrency(Number(value)), "Projected 30d"]}
+                />
+                <Bar dataKey="projected30d" fill="#6366f1" radius={[0, 4, 4, 0]} name="Projected 30d" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
       </>
       )}
     </div>

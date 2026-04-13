@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { SkeletonTable } from "@/components/ui/skeleton";
 import { api } from "@/lib/dashboard-api";
 import { formatCurrency, formatTokens, formatNumber } from "@/lib/utils";
+import { useTerminology } from "@/lib/terminology";
 import {
   Search, AlertTriangle, ChevronUp, ChevronDown,
   X, ArrowUpDown, Filter,
@@ -27,6 +28,7 @@ type SortField = "name" | "email" | "department" | "team" | "total_cost" | "tota
 type SortDir = "asc" | "desc";
 
 export default function UsersPage() {
+  const { t } = useTerminology();
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -131,7 +133,7 @@ export default function UsersPage() {
   if (error) {
     return (
       <div>
-        <Header title="Users" />
+        <Header title={t("users")} />
         <Card className="p-8 text-center"><p className="text-destructive">{error}</p></Card>
       </div>
     );
@@ -146,8 +148,8 @@ export default function UsersPage() {
   return (
     <div>
       <Header
-        title="Users"
-        description={`${users.length} total users · ${activeCount} active`}
+        title={t("users")}
+        description={`${users.length} total ${t("users").toLowerCase()} · ${activeCount} active`}
         action={
           <Select
             value={String(days)}

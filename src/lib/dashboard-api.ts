@@ -179,8 +179,8 @@ export const api = {
   getRoi: (days = 30) => apiFetch(`/analytics/roi?days=${days}`),
 
   // Forecasting
-  getForecast: (historyDays = 90, forecastDays = 30) =>
-    apiFetch(`/analytics/forecast?historyDays=${historyDays}&forecastDays=${forecastDays}`),
+  getForecast: (historyDays = 90, forecastDays = 30, departmentId?: string) =>
+    apiFetch(`/analytics/forecast?historyDays=${historyDays}&forecastDays=${forecastDays}${departmentId ? `&departmentId=${departmentId}` : ""}`),
 
   // Seat Optimization
   getSeatOptimization: (days = 30) => apiFetch(`/analytics/seat-optimization?days=${days}`),

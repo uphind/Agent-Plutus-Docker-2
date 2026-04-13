@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { InfoTooltip } from "./info-tooltip";
 
 interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   children: React.ReactNode;
@@ -31,11 +32,13 @@ export function CardHeader({ className, children, ...props }: React.HTMLAttribut
 export function CardTitle({
   className,
   children,
+  tooltip,
   ...props
-}: React.HTMLAttributes<HTMLHeadingElement>) {
+}: React.HTMLAttributes<HTMLHeadingElement> & { tooltip?: string }) {
   return (
     <h3 className={cn("text-sm font-semibold text-foreground", className)} {...props}>
       {children}
+      {tooltip && <InfoTooltip text={tooltip} className="ml-1.5" />}
     </h3>
   );
 }

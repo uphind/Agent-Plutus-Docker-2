@@ -13,6 +13,7 @@ import { StatusDot } from "@/components/ui/status-dot";
 import { SkeletonCard, SkeletonTable } from "@/components/ui/skeleton";
 import { api } from "@/lib/dashboard-api";
 import { formatCurrency, formatTokens, formatNumber } from "@/lib/utils";
+import { useTerminology } from "@/lib/terminology";
 import { getDepartmentIcon } from "@/lib/entity-icons";
 import {
   Building2, Users, Layers, Search, LayoutGrid, List,
@@ -39,6 +40,7 @@ type ViewMode = "grid" | "table";
 type StatusFilter = "" | "healthy" | "caution" | "warning" | "over_budget" | "no_budget";
 
 export default function DepartmentsPage() {
+  const { t } = useTerminology();
   const [departments, setDepartments] = useState<DeptData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -101,7 +103,7 @@ export default function DepartmentsPage() {
   if (error) {
     return (
       <div>
-        <Header title="Departments" />
+        <Header title={t("departments")} />
         <Card className="p-8 text-center"><p className="text-destructive">{error}</p></Card>
       </div>
     );
@@ -110,8 +112,8 @@ export default function DepartmentsPage() {
   return (
     <div>
       <Header
-        title="Departments"
-        description={`${departments.length} departments · ${totalUsers} users`}
+        title={t("departments")}
+        description={`${departments.length} ${t("departments").toLowerCase()} · ${totalUsers} ${t("users").toLowerCase()}`}
       />
 
       {/* Toolbar */}

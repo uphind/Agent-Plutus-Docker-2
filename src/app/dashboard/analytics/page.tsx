@@ -10,7 +10,10 @@ import { Tabs } from "@/components/ui/tabs";
 import { SkeletonCard, SkeletonTable } from "@/components/ui/skeleton";
 import { api } from "@/lib/dashboard-api";
 import { formatCurrency, formatTokens, formatNumber, formatModelName, isOverageModel, PROVIDER_LABELS, PROVIDER_COLORS } from "@/lib/utils";
-import { Zap, DollarSign, Hash, Clock } from "lucide-react";
+import { TOOLTIPS } from "@/lib/tooltip-content";
+import { Zap, DollarSign, Hash, Clock, PieChart as PieChartIcon, TableIcon } from "lucide-react";
+import { DistributionPie } from "@/components/charts/distribution-pie";
+import { ProviderBar } from "@/components/analytics/provider-bar";
 import { UsageHeatmap } from "@/components/charts/usage-heatmap";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -82,6 +85,8 @@ export default function AnalyticsPage() {
   const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set());
   const [providerData, setProviderData] = useState<Array<{ provider: string; totalCost: number; totalTokens: number; requestsCount: number }>>([]);
   const [modelSummary, setModelSummary] = useState<Array<{ model: string; provider: string; totalCost: number; totalTokens: number; requestsCount: number }>>([]);
+  const [providerView, setProviderView] = useState<"table" | "pie">("table");
+  const [modelView, setModelView] = useState<"table" | "pie">("table");
 
   useEffect(() => {
     setLoading(true);
@@ -231,18 +236,6 @@ export default function AnalyticsPage() {
         action={
           <div className="flex items-center gap-2">
             <Select
-              value={provider}
-              onChange={(e) => setProvider(e.target.value)}
-              options={[
-                { value: "", label: "All providers" },
-                { value: "anthropic", label: "Anthropic" },
-                { value: "openai", label: "OpenAI" },
-                { value: "gemini", label: "Gemini" },
-                { value: "cursor", label: "Cursor" },
-                { value: "vertex", label: "Vertex AI" },
-              ]}
-            />
-            <Select
               value={granularity}
               onChange={(e) => setGranularity(e.target.value)}
               options={[
@@ -275,21 +268,48 @@ export default function AnalyticsPage() {
         </div>
       ) : data ? (
         <>
+          {/* Provider Bar */}
+          <ProviderBar
+            providers={providerData}
+            activeProvider={provider}
+            onSelect={setProvider}
+          />
+
           {/* Summary KPIs */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <StatCard title="Models Used" value={String(data.modelTotals.length)} subtitle={`across ${new Set(data.modelTotals.map((m) => m.provider)).size} providers`} icon={Zap} />
-            <StatCard title="Total Spend" value={formatCurrency(data.modelTotals.reduce((s, m) => s + m.total_cost, 0))} subtitle={`Last ${days} days`} icon={DollarSign} />
-            <StatCard title="Total Requests" value={formatNumber(data.modelTotals.reduce((s, m) => s + m.total_requests, 0))} icon={Hash} />
-            <StatCard title="Data Points" value={formatNumber(data.periodTotals.length)} subtitle={`${granularity} intervals`} icon={Clock} />
+            <StatCard title="Models Used" value={String(data.modelTotals.length)} subtitle={`across ${new Set(data.modelTotals.map((m) => m.provider)).size} providers`} icon={Zap} tooltip={TOOLTIPS.modelsUsed} />
+            <StatCard title="Total Spend" value={formatCurrency(data.modelTotals.reduce((s, m) => s + m.total_cost, 0))} subtitle={`Last ${days} days`} icon={DollarSign} tooltip={TOOLTIPS.totalSpendAnalytics} />
+            <StatCard title="Total Requests" value={formatNumber(data.modelTotals.reduce((s, m) => s + m.total_requests, 0))} icon={Hash} tooltip={TOOLTIPS.totalRequestsAnalytics} />
+            <StatCard title="Data Points" value={formatNumber(data.periodTotals.length)} subtitle={`${granularity} intervals`} icon={Clock} tooltip={TOOLTIPS.dataPoints} />
           </div>
 
           {/* Spend by Provider & Spend by Model */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             <Card>
-              <CardHeader><CardTitle>Spend by Provider</CardTitle></CardHeader>
-              <CardContent className="p-0">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle tooltip={TOOLTIPS.spendByProvider}>Spend by Provider</CardTitle>
+                  <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
+                    <button onClick={() => setProviderView("table")} className={`p-1.5 rounded-md transition-colors ${providerView === "table" ? "bg-card shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+                      <TableIcon className="h-3.5 w-3.5" />
+                    </button>
+                    <button onClick={() => setProviderView("pie")} className={`p-1.5 rounded-md transition-colors ${providerView === "pie" ? "bg-card shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+                      <PieChartIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className={providerView === "table" ? "p-0" : ""}>
                 {providerData.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-8 px-6">No provider data</p>
+                ) : providerView === "pie" ? (
+                  <DistributionPie
+                    data={providerData.sort((a, b) => b.totalCost - a.totalCost).map((p) => ({
+                      name: PROVIDER_LABELS[p.provider] ?? p.provider,
+                      value: p.totalCost,
+                      color: PROVIDER_COLORS[p.provider],
+                    }))}
+                  />
                 ) : (
                   <table className="w-full">
                     <tbody>
@@ -297,7 +317,7 @@ export default function AnalyticsPage() {
                         const maxCost = Math.max(...providerData.map((x) => x.totalCost), 1);
                         const barPct = (p.totalCost / maxCost) * 100;
                         return (
-                          <tr key={p.provider} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
+                          <tr key={p.provider} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => setProvider(p.provider)}>
                             <td className="px-5 py-3">
                               <div className="flex items-center gap-2">
                                 <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: PROVIDER_COLORS[p.provider] ?? "#6b7280" }} />
@@ -322,10 +342,29 @@ export default function AnalyticsPage() {
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle>Spend by Model</CardTitle></CardHeader>
-              <CardContent className="p-0">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle tooltip={TOOLTIPS.spendByModel}>Spend by Model</CardTitle>
+                  <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
+                    <button onClick={() => setModelView("table")} className={`p-1.5 rounded-md transition-colors ${modelView === "table" ? "bg-card shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+                      <TableIcon className="h-3.5 w-3.5" />
+                    </button>
+                    <button onClick={() => setModelView("pie")} className={`p-1.5 rounded-md transition-colors ${modelView === "pie" ? "bg-card shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+                      <PieChartIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className={modelView === "table" ? "p-0" : ""}>
                 {modelSummary.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-8 px-6">No model data</p>
+                ) : modelView === "pie" ? (
+                  <DistributionPie
+                    data={modelSummary.slice(0, 8).map((m) => ({
+                      name: `${formatModelName(m.model)} (${PROVIDER_LABELS[m.provider] ?? m.provider})`,
+                      value: m.totalCost,
+                    }))}
+                  />
                 ) : (
                   <table className="w-full">
                     <tbody>
@@ -336,7 +375,7 @@ export default function AnalyticsPage() {
                           <tr key={`${m.provider}-${m.model}-${i}`} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
                             <td className="px-5 py-3">
                               <span className="text-sm font-medium">{formatModelName(m.model)}</span>
-                              <span className="text-[10px] text-muted-foreground ml-1.5">{PROVIDER_LABELS[m.provider] ?? m.provider}</span>
+                              <button className="text-[10px] text-muted-foreground ml-1.5 hover:text-brand transition-colors" onClick={() => setProvider(m.provider)}>{PROVIDER_LABELS[m.provider] ?? m.provider}</button>
                             </td>
                             <td className="px-5 py-3 text-right">
                               <div className="flex items-center justify-end gap-2">
@@ -379,7 +418,12 @@ export default function AnalyticsPage() {
                     >
                       {!active && <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: color }} />}
                       {formatModelName(m.model)}{isOverageModel(m.model) ? " ⚠" : ""}
-                      <span className="opacity-70">({PROVIDER_LABELS[m.provider] ?? m.provider})</span>
+                      <span
+                        className="opacity-70 hover:opacity-100 hover:underline"
+                        onClick={(e) => { e.stopPropagation(); setProvider(m.provider); }}
+                      >
+                        ({PROVIDER_LABELS[m.provider] ?? m.provider})
+                      </span>
                     </button>
                   );
                 })}
@@ -492,7 +536,7 @@ export default function AnalyticsPage() {
           {/* ═══════════════ Model Share ═══════════════ */}
           {tab === "share" && (
             <Card>
-              <CardHeader><CardTitle>Model Cost Share Over Time (%)</CardTitle></CardHeader>
+              <CardHeader><CardTitle tooltip={TOOLTIPS.modelShare}>Model Cost Share Over Time (%)</CardTitle></CardHeader>
               <CardContent>
                 {shareData.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-12">No data</p>
@@ -521,7 +565,7 @@ export default function AnalyticsPage() {
           {/* ═══════════════ Cost Efficiency ═══════════════ */}
           {tab === "efficiency" && (
             <Card>
-              <CardHeader><CardTitle>Average Cost per Request Over Time</CardTitle></CardHeader>
+              <CardHeader><CardTitle tooltip={TOOLTIPS.costEfficiency}>Average Cost per Request Over Time</CardTitle></CardHeader>
               <CardContent>
                 {efficiencyData.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-12">No data</p>

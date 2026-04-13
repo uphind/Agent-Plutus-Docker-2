@@ -25,11 +25,25 @@ import {
   BarChart3,
   ShieldCheck,
   ScrollText,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { signOutAction } from "@/app/actions/auth";
+import { useTerminology } from "@/lib/terminology";
 
-const navSections = [
+interface NavItem {
+  name: string;
+  termKey?: string;
+  href: string;
+  icon: typeof LayoutDashboard;
+}
+
+interface NavSection {
+  label: string;
+  items: NavItem[];
+}
+
+const NAV_SECTIONS: NavSection[] = [
   {
     label: "OVERVIEW",
     items: [
@@ -39,23 +53,23 @@ const navSections = [
   {
     label: "ORGANIZATION",
     items: [
-      { name: "Departments", href: "/dashboard/departments", icon: Building2 },
-      { name: "Teams", href: "/dashboard/teams", icon: UsersRound },
-      { name: "Users", href: "/dashboard/users", icon: Users },
+      { name: "Departments", termKey: "departments", href: "/dashboard/departments", icon: Building2 },
+      { name: "Teams", termKey: "teams", href: "/dashboard/teams", icon: UsersRound },
+      { name: "Users", termKey: "users", href: "/dashboard/users", icon: Users },
     ],
   },
   {
     label: "INSIGHTS",
     items: [
-      // { name: "ROI", href: "/dashboard/roi", icon: Trophy },
       { name: "Forecasting", href: "/dashboard/forecasting", icon: ChartLine },
-      { name: "Seat Optimization", href: "/dashboard/seat-optimization", icon: Armchair },
+      { name: "Seat Optimization", termKey: "seat optimization", href: "/dashboard/seat-optimization", icon: Armchair },
       { name: "Analytics", href: "/dashboard/analytics", icon: TrendingUp },
       { name: "Models", href: "/dashboard/models", icon: Boxes },
       { name: "Explorer", href: "/dashboard/explorer", icon: Compass },
       { name: "Reports", href: "/dashboard/reports", icon: FileBarChart },
       { name: "Chargeback", href: "/dashboard/chargeback", icon: Receipt },
       { name: "Suggestions", href: "/dashboard/suggestions", icon: Lightbulb },
+      { name: "Cost Optimizer", href: "/dashboard/classify", icon: Sparkles },
     ],
   },
   {
@@ -69,6 +83,7 @@ const navSections = [
     items: [
       { name: "Providers", href: "/dashboard/providers", icon: Plug },
       { name: "Provider Health", href: "/dashboard/provider-health", icon: ShieldCheck },
+      { name: "Directory Sync", href: "/dashboard/settings/graph", icon: Users },
       { name: "API Docs", href: "/dashboard/api-docs", icon: ScrollText },
       { name: "Settings", href: "/dashboard/settings", icon: Settings },
     ],
@@ -82,6 +97,7 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
   const pathname = usePathname();
+  const { t } = useTerminology();
 
   return (
     <aside
@@ -117,7 +133,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
 
       {/* Nav */}
       <nav className="relative flex-1 overflow-y-auto py-3 px-2.5">
-        {navSections.map((section) => (
+        {NAV_SECTIONS.map((section) => (
           <div key={section.label} className="mb-5">
             {!collapsed && (
               <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-gray-500">
@@ -126,15 +142,16 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
             )}
             <div className="space-y-0.5">
               {section.items.map((item) => {
+                const displayName = item.termKey ? t(item.termKey) : item.name;
                 const isActive =
                   pathname === item.href ||
                   (item.href !== "/dashboard" && pathname.startsWith(item.href));
 
                 return (
                   <Link
-                    key={item.name}
+                    key={item.href}
                     href={item.href}
-                    title={collapsed ? item.name : undefined}
+                    title={collapsed ? displayName : undefined}
                     className={cn(
                       "flex items-center rounded-lg text-[13px] font-medium transition-colors",
                       collapsed ? "justify-center p-2.5" : "gap-2.5 px-3 py-2",
@@ -144,7 +161,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
                     )}
                   >
                     <item.icon className="h-[18px] w-[18px] shrink-0" />
-                    {!collapsed && item.name}
+                    {!collapsed && displayName}
                   </Link>
                 );
               })}

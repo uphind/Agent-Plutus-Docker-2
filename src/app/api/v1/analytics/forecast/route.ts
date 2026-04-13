@@ -38,9 +38,14 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const historyDays = parseInt(searchParams.get("historyDays") ?? "90", 10);
   const forecastDays = parseInt(searchParams.get("forecastDays") ?? "30", 10);
+  const departmentId = searchParams.get("departmentId") ?? null;
 
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - historyDays);
+
+  const deptFilter = departmentId
+    ? Prisma.sql` AND ur.user_id IN (SELECT id FROM org_users WHERE org_id = ${orgId} AND department_id = ${departmentId})`
+    : Prisma.empty;
 
   const dailySpendRaw = await prisma.$queryRaw<
     Array<{ date: string; spend: number; tokens: number | bigint; requests: number | bigint }>
@@ -48,8 +53,8 @@ export async function GET(request: NextRequest) {
     Prisma.sql`SELECT date::text, SUM(cost_usd)::float AS spend,
             COALESCE(SUM(input_tokens + output_tokens), 0)::bigint AS tokens,
             COALESCE(SUM(requests_count), 0)::bigint AS requests
-     FROM usage_records
-     WHERE org_id = ${orgId} AND date >= ${startDate}
+     FROM usage_records ur
+     WHERE org_id = ${orgId} AND date >= ${startDate}${deptFilter}
      GROUP BY date ORDER BY date`
   );
 
@@ -183,6 +188,51 @@ export async function GET(request: NextRequest) {
 
   const totalProjected30d = forecast.reduce((s, f) => s + f.projected, 0);
 
+  // Per-department forecasts (only when not filtering by a specific department)
+  let departmentForecasts: Array<{
+    departmentId: string;
+    department: string;
+    projected30d: number;
+    currentSpend: number;
+    growthRate: number;
+  }> = [];
+
+  if (!departmentId) {
+    const deptSpend = await prisma.$queryRaw<
+      Array<{
+        department_id: string;
+        department: string;
+        recent_spend: number;
+        prior_spend: number;
+        total_spend: number;
+      }>
+    >(
+      Prisma.sql`SELECT
+         u.department_id,
+         COALESCE(u.department, 'Unassigned') AS department,
+         COALESCE(SUM(CASE WHEN ur.date >= NOW() - INTERVAL '7 days' THEN ur.cost_usd ELSE 0 END), 0)::float AS recent_spend,
+         COALESCE(SUM(CASE WHEN ur.date >= NOW() - INTERVAL '14 days' AND ur.date < NOW() - INTERVAL '7 days' THEN ur.cost_usd ELSE 0 END), 0)::float AS prior_spend,
+         COALESCE(SUM(ur.cost_usd), 0)::float AS total_spend
+       FROM org_users u
+       LEFT JOIN usage_records ur ON ur.user_id = u.id AND ur.org_id = ${orgId}
+         AND ur.date >= ${startDate}
+       WHERE u.org_id = ${orgId} AND u.status = 'active' AND u.department_id IS NOT NULL
+       GROUP BY u.department_id, u.department`
+    );
+
+    const totalDays = dailySpend.length || 1;
+    departmentForecasts = deptSpend.map((d) => {
+      const dailyRate = d.total_spend / totalDays;
+      return {
+        departmentId: d.department_id,
+        department: d.department,
+        projected30d: dailyRate * 30,
+        currentSpend: d.total_spend,
+        growthRate: d.prior_spend > 0 ? ((d.recent_spend - d.prior_spend) / d.prior_spend) * 100 : 0,
+      };
+    }).sort((a, b) => b.projected30d - a.projected30d);
+  }
+
   return NextResponse.json({
     period: { historyDays, forecastDays },
     regression: { slope: reg.slope, intercept: reg.intercept, r2: reg.r2 },
@@ -193,6 +243,7 @@ export async function GET(request: NextRequest) {
     weeklyGrowthRate: weeklyGrowth,
     providerGrowth,
     budgetExhaustion,
+    departmentForecasts,
     currentMonth: { dayOfMonth, daysInMonth, daysRemaining },
   });
   } catch (err) {

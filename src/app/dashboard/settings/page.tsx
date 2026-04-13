@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/dashboard-api";
-import { RefreshCw, Users, Code2, Bot, Eye, EyeOff } from "lucide-react";
+import { RefreshCw, Users, Code2, Bot, Eye, EyeOff, Languages, Pencil, Check as CheckIcon } from "lucide-react";
+import { useTerminology } from "@/lib/terminology";
 
 const INTERVAL_OPTIONS = [
   { value: "1", label: "Every 1 hour" },
@@ -58,6 +59,14 @@ interface Settings {
   lastSync: { at: string; status: string } | null;
 }
 
+const TERMINOLOGY_DEFAULTS: Array<{ systemTerm: string; label: string; description: string }> = [
+  { systemTerm: "department", label: "Department", description: "Organizational unit grouping teams" },
+  { systemTerm: "team", label: "Team", description: "Sub-unit within a department" },
+  { systemTerm: "user", label: "User", description: "Individual person in the system" },
+  { systemTerm: "seat", label: "Seat", description: "Licensed position / active account" },
+  { systemTerm: "seat optimization", label: "Seat Optimization", description: "Feature for analyzing seat utilization" },
+];
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [selectedInterval, setSelectedInterval] = useState("6");
@@ -68,6 +77,14 @@ export default function SettingsPage() {
   const [aiConfig, setAiConfig] = useState<AiAssistantConfig>({ provider: "openai", model: "gpt-4o-mini", apiKey: "" });
   const [aiSaved, setAiSaved] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [availableModels, setAvailableModels] = useState<Array<{ provider: string; modelId: string; displayName: string }>>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+
+  const { overrides, reload: reloadTerminology } = useTerminology();
+  const [termEditing, setTermEditing] = useState<string | null>(null);
+  const [termDraft, setTermDraft] = useState("");
+  const [termSaving, setTermSaving] = useState(false);
+  const [termSaved, setTermSaved] = useState(false);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -79,10 +96,26 @@ export default function SettingsPage() {
     }
   }, []);
 
+  const loadModels = useCallback(async (refresh = false) => {
+    setModelsLoading(true);
+    try {
+      const res = await fetch(`/api/v1/models/available${refresh ? "?refresh=true" : ""}`);
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableModels(data.models ?? []);
+      }
+    } catch {
+      // silently fail — keep existing models
+    } finally {
+      setModelsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadSettings();
     setAiConfig(loadAiConfig());
-  }, [loadSettings]);
+    loadModels();
+  }, [loadSettings, loadModels]);
 
   const handleSaveInterval = async () => {
     setSaving(true);
@@ -96,6 +129,29 @@ export default function SettingsPage() {
       setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveTerm = async (systemTerm: string) => {
+    if (!termDraft.trim()) {
+      setTermEditing(null);
+      return;
+    }
+    setTermSaving(true);
+    try {
+      await fetch("/api/v1/settings/terminology", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ overrides: [{ systemTerm, customTerm: termDraft.trim() }] }),
+      });
+      await reloadTerminology();
+      setTermEditing(null);
+      setTermSaved(true);
+      setTimeout(() => setTermSaved(false), 3000);
+    } catch {
+      // silently fail
+    } finally {
+      setTermSaving(false);
     }
   };
 
@@ -219,6 +275,94 @@ export default function SettingsPage() {
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
+            <Languages className="h-4 w-4 text-muted-foreground" />
+            <CardTitle>Terminology</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Customize the terms used throughout the platform to match your organization&apos;s vocabulary.
+          </p>
+          <div className="rounded-lg border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Default Term</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Your Term</th>
+                  <th className="px-4 py-2.5 w-20" />
+                </tr>
+              </thead>
+              <tbody>
+                {TERMINOLOGY_DEFAULTS.map((td) => {
+                  const customValue = overrides[td.systemTerm] ?? "";
+                  const isEditing = termEditing === td.systemTerm;
+                  return (
+                    <tr key={td.systemTerm} className="border-b border-border last:border-0">
+                      <td className="px-4 py-2.5">
+                        <div>
+                          <span className="font-medium">{td.label}</span>
+                          <p className="text-[11px] text-muted-foreground">{td.description}</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {isEditing ? (
+                          <input
+                            autoFocus
+                            className="h-8 w-full rounded border border-border bg-card px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                            value={termDraft}
+                            onChange={(e) => setTermDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                handleSaveTerm(td.systemTerm);
+                              } else if (e.key === "Escape") {
+                                setTermEditing(null);
+                              }
+                            }}
+                          />
+                        ) : (
+                          <span className={customValue ? "font-medium text-brand" : "text-muted-foreground"}>
+                            {customValue || td.label}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        {isEditing ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleSaveTerm(td.systemTerm)}
+                            disabled={termSaving}
+                          >
+                            <CheckIcon className="h-3.5 w-3.5" />
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setTermEditing(td.systemTerm);
+                              setTermDraft(customValue || "");
+                            }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {termSaved && (
+            <p className="text-sm text-emerald-600 font-medium">Terminology updated successfully</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
             <Bot className="h-4 w-4 text-muted-foreground" />
             <CardTitle>AI Assistant</CardTitle>
           </div>
@@ -236,19 +380,47 @@ export default function SettingsPage() {
               value={aiConfig.provider}
               onChange={(e) => {
                 const provider = e.target.value;
+                const providerModels = availableModels.filter((m) => m.provider === provider);
                 setAiConfig((prev) => ({
                   ...prev,
                   provider,
-                  model: DEFAULT_MODELS[provider] ?? prev.model,
+                  model: providerModels[0]?.modelId ?? DEFAULT_MODELS[provider] ?? prev.model,
                 }));
               }}
             />
-            <Input
-              label="Model"
-              placeholder="e.g. gpt-4o-mini"
-              value={aiConfig.model}
-              onChange={(e) => setAiConfig((prev) => ({ ...prev, model: e.target.value }))}
-            />
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-foreground">Model</label>
+                <button
+                  type="button"
+                  onClick={() => loadModels(true)}
+                  className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                  disabled={modelsLoading}
+                >
+                  <RefreshCw className={`h-3 w-3 ${modelsLoading ? "animate-spin" : ""}`} />
+                  Refresh
+                </button>
+              </div>
+              {availableModels.filter((m) => m.provider === aiConfig.provider).length > 0 ? (
+                <select
+                  className="flex h-9 w-full rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={aiConfig.model}
+                  onChange={(e) => setAiConfig((prev) => ({ ...prev, model: e.target.value }))}
+                >
+                  {availableModels
+                    .filter((m) => m.provider === aiConfig.provider)
+                    .map((m) => (
+                      <option key={m.modelId} value={m.modelId}>{m.displayName}</option>
+                    ))}
+                </select>
+              ) : (
+                <Input
+                  placeholder="e.g. gpt-4o-mini"
+                  value={aiConfig.model}
+                  onChange={(e) => setAiConfig((prev) => ({ ...prev, model: e.target.value }))}
+                />
+              )}
+            </div>
           </div>
 
           <div className="relative">

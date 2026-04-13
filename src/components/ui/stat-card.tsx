@@ -2,6 +2,7 @@ import { Card } from "./card";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
 import { TrendingUp, TrendingDown } from "lucide-react";
+import { InfoTooltip } from "./info-tooltip";
 
 interface StatCardProps {
   title: string;
@@ -9,6 +10,7 @@ interface StatCardProps {
   subtitle?: string;
   icon?: LucideIcon;
   trend?: { value: number; label: string };
+  tooltip?: string;
   className?: string;
 }
 
@@ -18,13 +20,17 @@ export function StatCard({
   subtitle,
   icon: Icon,
   trend,
+  tooltip,
   className,
 }: StatCardProps) {
   return (
     <Card className={cn("p-6", className)}>
       <div className="flex items-start justify-between">
         <div className="space-y-1">
-          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{title}</p>
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            {title}
+            {tooltip && <InfoTooltip text={tooltip} className="ml-1" iconSize={12} />}
+          </p>
           <p className="text-2xl font-bold tracking-tight">{value}</p>
           {subtitle && (
             <p className="text-xs text-muted-foreground">{subtitle}</p>

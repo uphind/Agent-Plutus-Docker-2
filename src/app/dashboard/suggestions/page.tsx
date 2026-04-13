@@ -10,6 +10,7 @@ import Link from "next/link";
 import {
   Lightbulb, DollarSign, UserX, Zap, TrendingDown,
   ChevronRight, ChevronDown, Eye, EyeOff, PiggyBank, Sparkles,
+  Brain,
 } from "lucide-react";
 
 interface Suggestion {
@@ -36,6 +37,7 @@ interface SuggestionsData {
 }
 
 const CATEGORY_META: Record<string, { label: string; icon: typeof Lightbulb; bg: string; iconColor: string }> = {
+  ai_classification: { label: "AI Model Optimization", icon: Brain, bg: "bg-indigo-500/10", iconColor: "#6366f1" },
   cost_optimization: { label: "Cost Optimization", icon: DollarSign, bg: "bg-emerald-500/10", iconColor: "#10b981" },
   budget_alerts: { label: "Budget Alerts", icon: TrendingDown, bg: "bg-amber-500/10", iconColor: "#f59e0b" },
   seat_management: { label: "Seat Management", icon: UserX, bg: "bg-sky-500/10", iconColor: "#0ea5e9" },
