@@ -7,7 +7,7 @@ Enterprise AI usage analytics platform. Connects to your AI providers (Anthropic
 ### Prerequisites
 
 - Docker & Docker Compose
-- An SSO identity provider (Okta, Microsoft Entra ID, Google Workspace, AD FS, etc.) — or use demo mode for testing
+- An SSO identity provider (Okta, Microsoft Entra ID, Google Workspace, AD FS, etc.)
 
 ### 1. Clone and configure
 
@@ -38,7 +38,7 @@ The database schema is automatically applied on first boot (`prisma migrate depl
 
 Open **https://your-domain.com** (or **https://localhost** with a self-signed cert warning for testing).
 
-Log in via your SSO provider, or click through if `DEMO_MODE="true"`.
+Log in via your SSO provider.
 
 ### 4. Connect AI providers
 
@@ -131,7 +131,6 @@ Register this ACS URL in your IdP: `https://{DOMAIN}/api/auth/saml/acs`
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `POSTGRES_PASSWORD` | Database password | `plutus_secret` |
-| `DEMO_MODE` | Set to `"true"` to bypass SSO login (for testing only — **never use in production**) | unset |
 
 ---
 
@@ -165,14 +164,11 @@ docker compose up db -d
 npx prisma generate
 npx prisma migrate dev --name init
 
-# (Optional) Seed with demo data
-npx tsx prisma/seed.ts
-
 # Start dev server
 npm run dev
 ```
 
-The dev server runs at `http://localhost:3000`. Set `DEMO_MODE="true"` in your environment to bypass SSO during development.
+The dev server runs at `http://localhost:3000`.
 
 ---
 

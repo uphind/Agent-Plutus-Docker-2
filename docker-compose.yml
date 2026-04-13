@@ -44,9 +44,6 @@ services:
 
       # SSO domain restriction (comma-separated, e.g. "payoneer.com,company.com")
       SSO_ALLOWED_DOMAINS: "${SSO_ALLOWED_DOMAINS:-}"
-
-      # Demo mode -- set to "true" to bypass SSO (for testing only)
-      DEMO_MODE: "${DEMO_MODE:-}"
     depends_on:
       - db
 

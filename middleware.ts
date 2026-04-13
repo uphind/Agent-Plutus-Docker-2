@@ -1,8 +1,6 @@
 import { auth } from "@/auth";
 import { NextResponse } from "next/server";
 
-const DEMO_MODE = process.env.DEMO_MODE === "true";
-
 const ALLOWED_DOMAINS = (process.env.SSO_ALLOWED_DOMAINS ?? "")
   .split(",")
   .map((d) => d.trim().toLowerCase())
@@ -18,7 +16,6 @@ export default auth((req) => {
   const { pathname } = req.nextUrl;
 
   if (
-    DEMO_MODE ||
     pathname === "/" ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||

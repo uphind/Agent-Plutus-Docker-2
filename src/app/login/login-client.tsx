@@ -8,7 +8,6 @@ interface LoginClientProps {
   callbackUrl: string;
   error: string | null;
   signInAction?: () => Promise<void>;
-  demoMode?: boolean;
 }
 
 const features = [
@@ -18,13 +17,9 @@ const features = [
   { icon: Zap, title: "Real-time Sync", desc: "Automated data sync with AI providers" },
 ];
 
-export function LoginClient({ ssoProvider, callbackUrl, error, signInAction, demoMode }: LoginClientProps) {
+export function LoginClient({ ssoProvider, callbackUrl, error, signInAction }: LoginClientProps) {
   const handleSAMLSignIn = () => {
     window.location.href = `/api/auth/saml/login?callbackUrl=${encodeURIComponent(callbackUrl)}`;
-  };
-
-  const handleDemoSignIn = () => {
-    window.location.href = "/dashboard";
   };
 
   return (
@@ -90,15 +85,7 @@ export function LoginClient({ ssoProvider, callbackUrl, error, signInAction, dem
               </div>
             )}
 
-            {demoMode ? (
-              <button
-                onClick={handleDemoSignIn}
-                className="w-full flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-white transition-colors"
-                style={{ backgroundColor: "#1616e7" }}
-              >
-                Enter Demo Dashboard
-              </button>
-            ) : ssoProvider === "saml" ? (
+            {ssoProvider === "saml" ? (
               <button
                 onClick={handleSAMLSignIn}
                 className="w-full flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-white transition-colors hover:opacity-90"

@@ -29,7 +29,6 @@ export default async function LoginPage({
       callbackUrl={callbackUrl}
       error={error}
       signInAction={ssoProvider === "oidc" ? signInWithOIDC : undefined}
-      demoMode={process.env.DEMO_MODE === "true"}
     />
   );
 }
