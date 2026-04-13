@@ -18,6 +18,7 @@ import Image from "next/image";
 import { DollarSign, Zap, Users, Plug, Check, Boxes, PieChart as PieChartIcon, BarChart3 } from "lucide-react";
 import { DistributionPie } from "@/components/charts/distribution-pie";
 import { getDepartmentIcon } from "@/lib/entity-icons";
+import { SETUP_SKIPPED_KEY, SETUP_SKIPPED_EVENT } from "@/lib/setup-constants";
 
 interface ComparisonMetric {
   current: number;
@@ -73,6 +74,11 @@ export default function OverviewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [providerChartMode, setProviderChartMode] = useState<"bar" | "pie">("bar");
+  const [setupSkipped, setSetupSkipped] = useState(false);
+
+  useEffect(() => {
+    setSetupSkipped(localStorage.getItem(SETUP_SKIPPED_KEY) === "true");
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -126,8 +132,8 @@ export default function OverviewPage() {
           <div className="grid grid-cols-4 gap-4">{Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}</div>
           <SkeletonTable rows={5} />
         </div>
-      ) : data && data.activeProviders === 0 && data.topUsers.length === 0 && data.totals.costUsd === 0 ? (
-        /* Onboarding empty state — only shown when there's truly no data */
+      ) : data && !setupSkipped && data.activeProviders === 0 && data.topUsers.length === 0 && data.totals.costUsd === 0 ? (
+        /* Onboarding empty state — only shown when there's truly no data and not skipped */
         <Card className="p-10 text-center max-w-lg mx-auto">
           <div className="flex justify-center mb-5">
             <Image src="/logo/symbol.svg" alt="Agent Plutus" width={48} height={48} />
@@ -155,6 +161,16 @@ export default function OverviewPage() {
               </div>
             ))}
           </div>
+          <button
+            onClick={() => {
+              localStorage.setItem(SETUP_SKIPPED_KEY, "true");
+              setSetupSkipped(true);
+              window.dispatchEvent(new Event(SETUP_SKIPPED_EVENT));
+            }}
+            className="mt-8 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Skip for now
+          </button>
         </Card>
       ) : data ? (
         <>

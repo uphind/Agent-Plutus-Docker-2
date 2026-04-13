@@ -1,9 +1,10 @@
 "use client";
 
-import { Bell, AlertTriangle, Check, CheckCheck, ChevronRight } from "lucide-react";
+import { Bell, AlertTriangle, Check, CheckCheck, ChevronRight, Settings2 } from "lucide-react";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { api } from "@/lib/dashboard-api";
 import Link from "next/link";
+import { SETUP_SKIPPED_KEY, SETUP_SKIPPED_EVENT, type SetupStep } from "@/lib/setup-constants";
 
 interface AlertSummary {
   critical: number;
@@ -81,6 +82,40 @@ export function TopBar({ user }: TopBarProps) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [setupIncomplete, setSetupIncomplete] = useState(false);
+  const [incompleteSteps, setIncompleteSteps] = useState<SetupStep[]>([]);
+  const [showSetupPanel, setShowSetupPanel] = useState(false);
+
+  const checkSetupStatus = useCallback(async () => {
+    const skipped = localStorage.getItem(SETUP_SKIPPED_KEY) === "true";
+    if (!skipped) {
+      setSetupIncomplete(false);
+      return;
+    }
+    try {
+      const [overview, deptsData] = await Promise.all([
+        api.getOverview(30),
+        api.getDepartments().catch(() => ({ departments: [] })),
+      ]);
+      const deps = deptsData.departments ?? [];
+      const isEmpty = overview.activeProviders === 0 && overview.topUsers.length === 0 && overview.totals.costUsd === 0;
+      if (!isEmpty) {
+        localStorage.removeItem(SETUP_SKIPPED_KEY);
+        setSetupIncomplete(false);
+        return;
+      }
+      const steps: SetupStep[] = [
+        { label: "Connect an AI provider", href: "/dashboard/providers", done: false },
+        { label: "Push your employee directory", href: "/dashboard/settings", done: false },
+        { label: "Set department budgets", href: "/dashboard/departments", done: deps.length > 0 },
+      ];
+      const pending = steps.filter((s) => !s.done);
+      setIncompleteSteps(pending);
+      setSetupIncomplete(pending.length > 0);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -97,10 +132,18 @@ export function TopBar({ user }: TopBarProps) {
       .then((d) => setAlerts(d.summary))
       .catch(() => {});
     fetchNotifications();
+    checkSetupStatus();
 
     const interval = setInterval(fetchNotifications, 60000);
-    return () => clearInterval(interval);
-  }, [fetchNotifications]);
+
+    const handleSetupSkipped = () => checkSetupStatus();
+    window.addEventListener(SETUP_SKIPPED_EVENT, handleSetupSkipped);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener(SETUP_SKIPPED_EVENT, handleSetupSkipped);
+    };
+  }, [fetchNotifications, checkSetupStatus]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -133,7 +176,7 @@ export function TopBar({ user }: TopBarProps) {
   };
 
   const totalAlerts = alerts ? alerts.critical + alerts.warning : 0;
-  const badgeCount = unreadCount + totalAlerts;
+  const badgeCount = unreadCount + totalAlerts + (setupIncomplete ? 1 : 0);
 
   return (
     <header className="h-14 bg-sidebar flex items-center justify-between px-6 sticky top-0 z-40">
@@ -171,6 +214,47 @@ export function TopBar({ user }: TopBarProps) {
                 )}
               </div>
 
+              {/* Setup incomplete banner */}
+              {setupIncomplete && (
+                <div className="border-b border-brand/15">
+                  <button
+                    onClick={() => setShowSetupPanel(!showSetupPanel)}
+                    className="flex items-center gap-2.5 px-4 py-2.5 w-full bg-brand/[0.06] hover:bg-brand/[0.10] transition-colors text-left"
+                  >
+                    <div className="h-7 w-7 rounded-lg bg-brand/15 flex items-center justify-center shrink-0">
+                      <Settings2 className="h-3.5 w-3.5 text-brand" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-brand">
+                        Complete setup
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {incompleteSteps.length} step{incompleteSteps.length !== 1 ? "s" : ""} remaining
+                      </p>
+                    </div>
+                    <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform ${showSetupPanel ? "rotate-90" : ""}`} />
+                  </button>
+                  {showSetupPanel && (
+                    <div className="px-4 pb-3 pt-1 space-y-2">
+                      {incompleteSteps.map((step) => (
+                        <Link
+                          key={step.label}
+                          href={step.href}
+                          onClick={() => setOpen(false)}
+                          className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-muted/60 transition-colors group"
+                        >
+                          <span className="h-1.5 w-1.5 rounded-full bg-brand shrink-0" />
+                          <span className="text-xs flex-1">{step.label}</span>
+                          <span className="text-[10px] text-brand opacity-0 group-hover:opacity-100 transition-opacity font-medium">
+                            Set up &rarr;
+                          </span>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Alert summary banner */}
               {alerts && totalAlerts > 0 && (
                 <Link
@@ -195,7 +279,7 @@ export function TopBar({ user }: TopBarProps) {
 
               {/* List */}
               <div className="max-h-[400px] overflow-y-auto">
-                {notifications.length === 0 && totalAlerts === 0 ? (
+                {notifications.length === 0 && totalAlerts === 0 && !setupIncomplete ? (
                   <div className="px-4 py-8 text-center text-sm text-muted-foreground">
                     No notifications yet
                   </div>
