@@ -13,9 +13,12 @@ model Organization {
   id                String   @id @default(uuid())
   name              String
   slug              String   @unique
-  syncIntervalHours Int      @default(6) @map("sync_interval_hours")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  syncIntervalHours    Int       @default(6) @map("sync_interval_hours")
+  dirSyncIntervalHours Int       @default(0) @map("dir_sync_interval_hours")
+  relinkIntervalHours  Int       @default(0) @map("relink_interval_hours")
+  lastRelinkAt         DateTime? @map("last_relink_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   users               OrgUser[]
   departments         Department[]
@@ -179,6 +182,7 @@ model UsageRecord {
   acceptRate      Decimal? @map("accept_rate") @db.Decimal(5, 4)
 
   metadata      Json?
+  userRef       String?  @map("user_ref")
 
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")

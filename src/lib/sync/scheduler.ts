@@ -1,73 +1,103 @@
 import cron, { type ScheduledTask } from "node-cron";
 import { prisma } from "@/lib/db";
-import { syncAllProviders } from "./sync-engine";
+import { syncAllProviders, syncDirectory, relinkOrphanedRecords } from "./sync-engine";
 
 let scheduledTask: ScheduledTask | null = null;
-let currentIntervalHours: number | null = null;
 
-function hoursToCron(hours: number): string {
-  if (hours >= 24) return "0 0 * * *";
-  return `0 */${hours} * * *`;
+function isDue(lastRun: Date | null, intervalHours: number): boolean {
+  if (intervalHours <= 0) return false;
+  if (!lastRun) return true;
+  const hoursSince = (Date.now() - lastRun.getTime()) / 3_600_000;
+  return hoursSince >= intervalHours;
 }
 
-async function runSync() {
-  console.log("[Sync Scheduler] Starting scheduled sync...");
+async function tick() {
+  console.log("[Scheduler] Running tick...");
   try {
-    const orgs = await prisma.organization.findMany({ select: { id: true, name: true } });
+    const orgs = await prisma.organization.findMany({
+      select: {
+        id: true,
+        name: true,
+        syncIntervalHours: true,
+        dirSyncIntervalHours: true,
+        relinkIntervalHours: true,
+        lastRelinkAt: true,
+      },
+    });
 
     for (const org of orgs) {
-      console.log(`[Sync Scheduler] Syncing org: ${org.name}`);
-      try {
-        const results = await syncAllProviders(org.id);
-        console.log(`[Sync Scheduler] Org ${org.name} sync results:`, results);
-      } catch (error) {
-        console.error(`[Sync Scheduler] Error syncing org ${org.name}:`, error);
+      // Provider usage sync — check oldest credential's lastSyncAt
+      if (org.syncIntervalHours > 0) {
+        const credentials = await prisma.providerCredential.findMany({
+          where: { orgId: org.id, isActive: true },
+          select: { lastSyncAt: true },
+        });
+        const oldestSync = credentials.length > 0
+          ? credentials.reduce<Date | null>(
+              (oldest, c) => {
+                if (!c.lastSyncAt) return null;
+                if (!oldest) return c.lastSyncAt;
+                return c.lastSyncAt < oldest ? c.lastSyncAt : oldest;
+              },
+              credentials[0].lastSyncAt,
+            )
+          : null;
+        if (credentials.length > 0 && isDue(oldestSync, org.syncIntervalHours)) {
+          console.log(`[Scheduler] Provider sync due for org: ${org.name}`);
+          try {
+            await syncAllProviders(org.id);
+          } catch (err) {
+            console.error(`[Scheduler] Provider sync error (${org.name}):`, err);
+          }
+        }
+      }
+
+      // Directory sync
+      if (org.dirSyncIntervalHours > 0) {
+        const graphConfig = await prisma.graphConfig.findUnique({
+          where: { orgId: org.id },
+          select: { lastSyncAt: true },
+        });
+        if (graphConfig && isDue(graphConfig.lastSyncAt, org.dirSyncIntervalHours)) {
+          console.log(`[Scheduler] Directory sync due for org: ${org.name}`);
+          try {
+            await syncDirectory(org.id);
+          } catch (err) {
+            console.error(`[Scheduler] Directory sync error (${org.name}):`, err);
+          }
+        }
+      }
+
+      // Re-link orphaned records
+      if (org.relinkIntervalHours > 0 && isDue(org.lastRelinkAt, org.relinkIntervalHours)) {
+        console.log(`[Scheduler] Relink due for org: ${org.name}`);
+        try {
+          await relinkOrphanedRecords(org.id);
+        } catch (err) {
+          console.error(`[Scheduler] Relink error (${org.name}):`, err);
+        }
       }
     }
   } catch (error) {
-    console.error("[Sync Scheduler] Fatal error:", error);
+    console.error("[Scheduler] Fatal error:", error);
   }
 }
 
 export async function startSyncScheduler() {
-  const org = await prisma.organization.findFirst({
-    select: { syncIntervalHours: true },
-  });
-
-  const intervalHours = org?.syncIntervalHours ?? 6;
-  scheduleWithInterval(intervalHours);
-}
-
-function scheduleWithInterval(hours: number) {
   if (scheduledTask) {
     scheduledTask.stop();
-    scheduledTask = null;
   }
-
-  currentIntervalHours = hours;
-  const cronExpr = hoursToCron(hours);
-  scheduledTask = cron.schedule(cronExpr, runSync);
-  console.log(`[Sync Scheduler] Scheduled sync every ${hours} hour(s) (cron: ${cronExpr})`);
+  scheduledTask = cron.schedule("0 * * * *", tick);
+  console.log("[Scheduler] Started (hourly tick)");
 }
 
 export async function restartSyncScheduler() {
-  const org = await prisma.organization.findFirst({
-    select: { syncIntervalHours: true },
-  });
-
-  const intervalHours = org?.syncIntervalHours ?? 6;
-
-  if (intervalHours === currentIntervalHours && scheduledTask) {
-    return;
-  }
-
-  scheduleWithInterval(intervalHours);
+  await startSyncScheduler();
 }
 
 export function stopSyncScheduler() {
   if (scheduledTask) {
     scheduledTask.stop();
     scheduledTask = null;
-    currentIntervalHours = null;
   }
 }

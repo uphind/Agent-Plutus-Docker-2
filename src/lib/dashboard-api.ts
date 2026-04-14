@@ -223,9 +223,31 @@ export const api = {
 
   // Settings
   getSettings: () => apiFetch("/settings"),
-  updateSettings: (settings: { sync_interval_hours?: number }) =>
+  updateSettings: (settings: {
+    sync_interval_hours?: number;
+    dir_sync_interval_hours?: number;
+    relink_interval_hours?: number;
+  }) =>
     apiFetch("/settings", {
       method: "PUT",
       body: JSON.stringify(settings),
     }),
+
+  // Re-link
+  triggerRelink: () => apiFetch("/sync/relink", { method: "POST" }),
+  getRelinkStats: () => apiFetch("/sync/relink"),
+
+  // Directory sync
+  triggerDirectorySync: () => apiFetch("/graph/sync", { method: "POST" }),
+
+  // Provider field mapping
+  getProviderFieldMapping: (provider: string) =>
+    apiFetch(`/providers/field-mapping?provider=${provider}`),
+  saveProviderFieldMapping: (provider: string, mappings: Array<{ sourceField: string; targetField: string }>) =>
+    apiFetch("/providers/field-mapping", {
+      method: "POST",
+      body: JSON.stringify({ provider, mappings }),
+    }),
+  fetchProviderSample: (provider: string) =>
+    apiFetch(`/providers/sample?provider=${provider}`),
 };

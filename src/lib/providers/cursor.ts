@@ -1,5 +1,5 @@
 import { Provider } from "@/generated/prisma/client";
-import { ProviderAdapter, ProviderFetchResult, CursorDauRecord } from "./types";
+import { ProviderAdapter, ProviderFetchResult, CursorDauRecord, ProviderSampleResult, RawSampleRow } from "./types";
 
 const ANALYTICS_BASE = "https://api.cursor.com/analytics/team";
 const ADMIN_BASE = "https://api.cursor.com";
@@ -149,6 +149,77 @@ export const cursorAdapter: ProviderAdapter = {
     } catch {
       return false;
     }
+  },
+
+  async fetchSample(apiKey: string): Promise<ProviderSampleResult> {
+    const rows: RawSampleRow[] = [];
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7 * 86400000);
+    const start = formatDate(weekAgo);
+    const end = formatDate(now);
+
+    // Per-user daily usage — small page
+    try {
+      const data = await cursorPost(`${ADMIN_BASE}/teams/daily-usage-data`, apiKey, {
+        startDate: weekAgo.getTime(),
+        endDate: now.getTime(),
+        page: 1,
+        pageSize: 5,
+      });
+      for (const row of (data.data ?? []) as CursorDailyUsageRow[]) {
+        rows.push(row as unknown as RawSampleRow);
+      }
+    } catch { /* admin API may not be available */ }
+
+    // Agent edits
+    try {
+      const data = await cursorGet(
+        `${ANALYTICS_BASE}/agent-edits?startDate=${start}&endDate=${end}`,
+        apiKey
+      );
+      for (const day of (data.data ?? []).slice(0, 3) as CursorAgentEditsDay[]) {
+        const flat: RawSampleRow = {};
+        for (const [k, v] of Object.entries(day)) {
+          flat[`agent_edits.${k}`] = v;
+        }
+        rows.push(flat);
+      }
+    } catch { /* endpoint may not be available */ }
+
+    // Spend — first page
+    try {
+      const data = await cursorPost(`${ADMIN_BASE}/teams/spend`, apiKey, {
+        page: 1,
+        pageSize: 5,
+        sortBy: "amount",
+        sortDirection: "desc",
+      });
+      for (const member of (data.teamMemberSpend ?? []).slice(0, 3) as CursorSpendMember[]) {
+        const flat: RawSampleRow = {};
+        for (const [k, v] of Object.entries(member)) {
+          flat[`spend.${k}`] = v;
+        }
+        rows.push(flat);
+      }
+    } catch { /* spend may not be available */ }
+
+    // DAU
+    try {
+      const data = await cursorGet(
+        `${ANALYTICS_BASE}/dau?startDate=${start}&endDate=${end}`,
+        apiKey
+      );
+      for (const entry of (data.data ?? []).slice(0, 3) as Array<{ date: string; dau: number }>) {
+        rows.push({ "dau.date": entry.date, "dau.dau": entry.dau });
+      }
+    } catch { /* DAU may not be available */ }
+
+    const fieldSet = new Set<string>();
+    for (const row of rows) {
+      for (const k of Object.keys(row)) fieldSet.add(k);
+    }
+
+    return { rows, availableFields: [...fieldSet].sort() };
   },
 
   async fetchUsage(

@@ -1,5 +1,5 @@
 import { Provider } from "@/generated/prisma/client";
-import { ProviderAdapter, ProviderFetchResult } from "./types";
+import { ProviderAdapter, ProviderFetchResult, ProviderSampleResult, RawSampleRow } from "./types";
 
 const API_BASE = "https://api.openai.com/v1/organization";
 
@@ -66,6 +66,50 @@ export const openaiAdapter: ProviderAdapter = {
     } catch {
       return false;
     }
+  },
+
+  async fetchSample(apiKey: string): Promise<ProviderSampleResult> {
+    const rows: RawSampleRow[] = [];
+    const now = Math.floor(Date.now() / 1000);
+    const weekAgo = now - 7 * 86400;
+
+    try {
+      const url = `${API_BASE}/usage/completions?start_time=${weekAgo}&end_time=${now}&bucket_width=1d&group_by[]=model&group_by[]=user_id&group_by[]=api_key_id&limit=5`;
+      const data = await openAIFetch(url, apiKey);
+      for (const bucket of (data.data ?? []) as OpenAIUsageBucket[]) {
+        const items = bucket.results ?? bucket.result ?? [];
+        for (const result of items) {
+          rows.push({
+            start_time: bucket.start_time,
+            ...result,
+          } as RawSampleRow);
+        }
+      }
+    } catch { /* usage endpoint may not be available */ }
+
+    try {
+      const url = `${API_BASE}/costs?start_time=${weekAgo}&end_time=${now}&bucket_width=1d&group_by[]=line_item&limit=5`;
+      const costData = await openAIFetch(url, apiKey);
+      for (const bucket of (costData.data ?? []) as OpenAICostBucket[]) {
+        const items = bucket.results ?? bucket.result ?? [];
+        for (const result of items) {
+          rows.push({
+            "cost_report.start_time": bucket.start_time,
+            "cost_report.amount": result.amount?.value,
+            "cost_report.currency": result.amount?.currency,
+            "cost_report.line_item": result.line_item,
+            "cost_report.project_id": result.project_id,
+          });
+        }
+      }
+    } catch { /* cost data supplementary */ }
+
+    const fieldSet = new Set<string>();
+    for (const row of rows) {
+      for (const k of Object.keys(row)) fieldSet.add(k);
+    }
+
+    return { rows, availableFields: [...fieldSet].sort() };
   },
 
   async fetchUsage(

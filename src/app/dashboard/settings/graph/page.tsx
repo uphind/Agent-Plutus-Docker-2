@@ -9,16 +9,28 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/dashboard-api";
 import {
   Users, Link2, ArrowRight, GripVertical, Check,
-  RefreshCw, Eye, EyeOff, AlertTriangle, Trash2, Clock,
+  RefreshCw, Eye, EyeOff, AlertTriangle, Trash2, Clock, LinkIcon,
 } from "lucide-react";
 
-const INTERVAL_OPTIONS = [
+const DIR_SYNC_INTERVAL_OPTIONS = [
+  { value: "0", label: "Manual only" },
   { value: "1", label: "Every 1 hour" },
   { value: "2", label: "Every 2 hours" },
   { value: "4", label: "Every 4 hours" },
   { value: "6", label: "Every 6 hours" },
   { value: "12", label: "Every 12 hours" },
   { value: "24", label: "Every 24 hours" },
+];
+
+const RELINK_INTERVAL_OPTIONS = [
+  { value: "0", label: "Manual only" },
+  { value: "1", label: "Every 1 hour" },
+  { value: "2", label: "Every 2 hours" },
+  { value: "6", label: "Every 6 hours" },
+  { value: "12", label: "Every 12 hours" },
+  { value: "24", label: "Every 24 hours" },
+  { value: "48", label: "Every 2 days" },
+  { value: "168", label: "Every 7 days" },
 ];
 
 interface Mapping {
@@ -55,31 +67,79 @@ export function DirectorySyncContent() {
   const [syncResult, setSyncResult] = useState<{ total: number; created: number; updated: number } | null>(null);
   const [isConfigured, setIsConfigured] = useState(false);
 
-  const [selectedInterval, setSelectedInterval] = useState("6");
-  const [intervalSaving, setIntervalSaving] = useState(false);
-  const [intervalSaved, setIntervalSaved] = useState(false);
-  const [currentInterval, setCurrentInterval] = useState("6");
-  const [intervalError, setIntervalError] = useState<string | null>(null);
+  const [dirSyncInterval, setDirSyncInterval] = useState("0");
+  const [currentDirInterval, setCurrentDirInterval] = useState("0");
+  const [dirIntervalSaving, setDirIntervalSaving] = useState(false);
+  const [dirIntervalSaved, setDirIntervalSaved] = useState(false);
+  const [dirIntervalError, setDirIntervalError] = useState<string | null>(null);
+  const [lastDirectorySync, setLastDirectorySync] = useState<string | null>(null);
+
+  const [relinkInterval, setRelinkInterval] = useState("0");
+  const [currentRelinkInterval, setCurrentRelinkInterval] = useState("0");
+  const [relinkSaving, setRelinkSaving] = useState(false);
+  const [relinkSaved, setRelinkSaved] = useState(false);
+  const [relinking, setRelinking] = useState(false);
+  const [relinkResult, setRelinkResult] = useState<{ total: number; relinked: number; merged: number; unresolved: number } | null>(null);
+  const [relinkError, setRelinkError] = useState<string | null>(null);
+  const [orphanedCount, setOrphanedCount] = useState(0);
+  const [lastRelinkAt, setLastRelinkAt] = useState<string | null>(null);
+  const [relinkIntervalError, setRelinkIntervalError] = useState<string | null>(null);
 
   useEffect(() => {
     api.getSettings().then((data) => {
-      setSelectedInterval(String(data.syncIntervalHours));
-      setCurrentInterval(String(data.syncIntervalHours));
+      setDirSyncInterval(String(data.dirSyncIntervalHours ?? 0));
+      setCurrentDirInterval(String(data.dirSyncIntervalHours ?? 0));
+      setRelinkInterval(String(data.relinkIntervalHours ?? 0));
+      setCurrentRelinkInterval(String(data.relinkIntervalHours ?? 0));
+      setOrphanedCount(data.orphanedRecordCount ?? 0);
+      setLastRelinkAt(data.lastRelinkAt ?? null);
+      setLastDirectorySync(data.lastDirectorySync ?? null);
     }).catch(() => {});
   }, []);
 
-  const handleSaveInterval = async () => {
-    setIntervalSaving(true);
-    setIntervalError(null);
+  const handleSaveDirInterval = async () => {
+    setDirIntervalSaving(true);
+    setDirIntervalError(null);
     try {
-      await api.updateSettings({ sync_interval_hours: parseInt(selectedInterval, 10) });
-      setCurrentInterval(selectedInterval);
-      setIntervalSaved(true);
-      setTimeout(() => setIntervalSaved(false), 3000);
+      await api.updateSettings({ dir_sync_interval_hours: parseInt(dirSyncInterval, 10) });
+      setCurrentDirInterval(dirSyncInterval);
+      setDirIntervalSaved(true);
+      setTimeout(() => setDirIntervalSaved(false), 3000);
     } catch (err) {
-      setIntervalError(err instanceof Error ? err.message : "Failed to save");
+      setDirIntervalError(err instanceof Error ? err.message : "Failed to save");
     } finally {
-      setIntervalSaving(false);
+      setDirIntervalSaving(false);
+    }
+  };
+
+  const handleSaveRelinkInterval = async () => {
+    setRelinkSaving(true);
+    setRelinkIntervalError(null);
+    try {
+      await api.updateSettings({ relink_interval_hours: parseInt(relinkInterval, 10) });
+      setCurrentRelinkInterval(relinkInterval);
+      setRelinkSaved(true);
+      setTimeout(() => setRelinkSaved(false), 3000);
+    } catch (err) {
+      setRelinkIntervalError(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setRelinkSaving(false);
+    }
+  };
+
+  const handleRelink = async () => {
+    setRelinking(true);
+    setRelinkResult(null);
+    setRelinkError(null);
+    try {
+      const data = await api.triggerRelink();
+      setRelinkResult({ total: data.total, relinked: data.relinked, merged: data.merged, unresolved: data.unresolved });
+      setOrphanedCount(data.unresolved);
+      setLastRelinkAt(new Date().toISOString());
+    } catch (err) {
+      setRelinkError(err instanceof Error ? err.message : "Re-link failed");
+    } finally {
+      setRelinking(false);
     }
   };
 
@@ -236,6 +296,7 @@ export function DirectorySyncContent() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setSyncResult({ total: data.total, created: data.created, updated: data.updated });
+      setLastDirectorySync(new Date().toISOString());
     } catch {
       // silently fail
     } finally {
@@ -478,9 +539,10 @@ export function DirectorySyncContent() {
         </Card>
       )}
 
-      {/* Step 3: Sync */}
+      {/* Step 3: Sync & Schedule */}
       {step === "done" && (
         <>
+          {/* Manual Sync */}
           <Card>
             <CardHeader>
               <div className="flex items-center gap-2">
@@ -492,6 +554,11 @@ export function DirectorySyncContent() {
               <p className="text-sm text-muted-foreground">
                 Pull users from your Active Directory using the configured field mappings.
               </p>
+              {lastDirectorySync && (
+                <p className="text-xs text-muted-foreground">
+                  Last synced: {new Date(lastDirectorySync).toLocaleString()}
+                </p>
+              )}
               <Button onClick={handleSync} disabled={syncing}>
                 {syncing ? "Syncing..." : "Sync Now"}
               </Button>
@@ -505,41 +572,124 @@ export function DirectorySyncContent() {
             </CardContent>
           </Card>
 
+          {/* Directory Sync Schedule */}
           <Card>
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Clock className="h-4 w-4 text-muted-foreground" />
-                <CardTitle>Sync Schedule</CardTitle>
+                <CardTitle>Directory Sync Schedule</CardTitle>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Directory and usage data are automatically synced on a recurring schedule.
+                Automatically pull users from Active Directory on a recurring schedule.
+                Set to &quot;Manual only&quot; to disable automatic sync.
               </p>
               <div className="flex items-end gap-3">
                 <div className="w-64">
                   <Select
                     label="Sync interval"
-                    options={INTERVAL_OPTIONS}
-                    value={selectedInterval}
-                    onChange={(e) => setSelectedInterval(e.target.value)}
+                    options={DIR_SYNC_INTERVAL_OPTIONS}
+                    value={dirSyncInterval}
+                    onChange={(e) => setDirSyncInterval(e.target.value)}
                   />
                 </div>
                 <Button
-                  onClick={handleSaveInterval}
-                  disabled={selectedInterval === currentInterval || intervalSaving}
+                  onClick={handleSaveDirInterval}
+                  disabled={dirSyncInterval === currentDirInterval || dirIntervalSaving}
                 >
-                  {intervalSaving ? "Saving..." : "Save"}
+                  {dirIntervalSaving ? "Saving..." : "Save"}
                 </Button>
               </div>
-              {intervalSaved && (
+              {dirIntervalSaved && (
                 <p className="text-sm text-emerald-600 font-medium">
-                  Sync schedule updated successfully
+                  Directory sync schedule updated successfully
                 </p>
               )}
-              {intervalError && (
-                <p className="text-sm text-red-600 font-medium">{intervalError}</p>
+              {dirIntervalError && (
+                <p className="text-sm text-red-600 font-medium">{dirIntervalError}</p>
               )}
+            </CardContent>
+          </Card>
+
+          {/* Re-link Orphaned Records */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <LinkIcon className="h-4 w-4 text-muted-foreground" />
+                <CardTitle>Re-link Orphaned Records</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Usage records that could not be matched to a user during sync can be
+                retroactively linked after the directory is updated.
+              </p>
+
+              <div className="flex items-center gap-4">
+                <div className="rounded-lg border border-border px-4 py-3 bg-muted/30">
+                  <p className="text-2xl font-bold tabular-nums">{orphanedCount}</p>
+                  <p className="text-[11px] text-muted-foreground">Orphaned records</p>
+                </div>
+                {lastRelinkAt && (
+                  <div className="text-xs text-muted-foreground">
+                    Last re-link: {new Date(lastRelinkAt).toLocaleString()}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Button onClick={handleRelink} disabled={relinking || orphanedCount === 0}>
+                  {relinking ? "Re-linking..." : "Re-link Now"}
+                </Button>
+                {orphanedCount === 0 && !relinkResult && (
+                  <p className="text-xs text-muted-foreground">No orphaned records to re-link</p>
+                )}
+              </div>
+
+              {relinkError && (
+                <div className="rounded-lg border border-red-200 bg-red-50/50 p-4">
+                  <p className="text-sm font-medium text-red-700">{relinkError}</p>
+                </div>
+              )}
+
+              {relinkResult && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4 space-y-1">
+                  <p className="text-sm font-medium text-emerald-700">
+                    Re-link complete: {relinkResult.relinked} linked, {relinkResult.merged} merged, {relinkResult.unresolved} unresolved
+                  </p>
+                  <p className="text-xs text-emerald-600">
+                    {relinkResult.total} total orphaned records processed
+                  </p>
+                </div>
+              )}
+
+              <div className="border-t border-border pt-4 mt-4">
+                <p className="text-xs font-medium mb-3">Automatic Re-link Schedule</p>
+                <div className="flex items-end gap-3">
+                  <div className="w-64">
+                    <Select
+                      label="Re-link interval"
+                      options={RELINK_INTERVAL_OPTIONS}
+                      value={relinkInterval}
+                      onChange={(e) => setRelinkInterval(e.target.value)}
+                    />
+                  </div>
+                  <Button
+                    onClick={handleSaveRelinkInterval}
+                    disabled={relinkInterval === currentRelinkInterval || relinkSaving}
+                    size="sm"
+                  >
+                    {relinkSaving ? "Saving..." : "Save"}
+                  </Button>
+                  {relinkSaved && (
+                    <span className="text-xs text-emerald-600 font-medium">Saved</span>
+                  )}
+                </div>
+                {relinkIntervalError && (
+                  <p className="text-sm text-red-600 font-medium mt-2">{relinkIntervalError}</p>
+                )}
+              </div>
             </CardContent>
           </Card>
         </>

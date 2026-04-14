@@ -2,7 +2,9 @@ import { Provider } from "@/generated/prisma/client";
 import {
   ProviderAdapter,
   ProviderFetchResult,
+  ProviderSampleResult,
   NormalizedUsageRecord,
+  RawSampleRow,
 } from "./types";
 
 const API_BASE = "https://api.anthropic.com/v1/organizations";
@@ -115,6 +117,22 @@ async function anthropicFetch(url: string, apiKey: string) {
 
 function formatDateUTC(d: Date): string {
   return d.toISOString().split("T")[0];
+}
+
+function flattenObj(
+  obj: Record<string, unknown>,
+  prefix = "",
+  out: RawSampleRow = {}
+): RawSampleRow {
+  for (const [k, v] of Object.entries(obj)) {
+    const key = prefix ? `${prefix}.${k}` : k;
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      flattenObj(v as Record<string, unknown>, key, out);
+    } else {
+      out[key] = v;
+    }
+  }
+  return out;
 }
 
 // --- Claude Code Analytics fetcher ---
@@ -233,6 +251,61 @@ export const anthropicAdapter: ProviderAdapter = {
     } catch {
       return false;
     }
+  },
+
+  async fetchSample(apiKey: string): Promise<ProviderSampleResult> {
+    const rows: RawSampleRow[] = [];
+
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7 * 86400000);
+
+    // Messages usage — grab first page only
+    try {
+      const url = `${API_BASE}/usage_report/messages?starting_at=${weekAgo.toISOString()}&ending_at=${now.toISOString()}&bucket_width=1d&group_by[]=model&group_by[]=api_key_id&limit=5`;
+      const data = await anthropicFetch(url, apiKey);
+      for (const bucket of (data.data ?? []) as AnthropicUsageBucket[]) {
+        for (const result of bucket.results ?? []) {
+          rows.push(flattenObj({ starting_at: bucket.starting_at, ...result }));
+        }
+      }
+    } catch { /* endpoint may not be available */ }
+
+    // Claude Code — grab one day
+    try {
+      const dateStr = formatDateUTC(now);
+      const url = `${API_BASE}/usage_report/claude_code?starting_at=${dateStr}&limit=3`;
+      const data: { data: ClaudeCodeRecord[] } = await anthropicFetch(url, apiKey);
+      for (const rec of data.data ?? []) {
+        const flat = flattenObj({
+          date: rec.date,
+          actor: rec.actor,
+          core_metrics: rec.core_metrics,
+          tool_actions: rec.tool_actions,
+        });
+        if (rec.model_breakdown?.[0]) {
+          Object.assign(flat, flattenObj(rec.model_breakdown[0], "model_breakdown"));
+        }
+        rows.push(flat);
+      }
+    } catch { /* Claude Code may not be available */ }
+
+    // Cost report — single page
+    try {
+      const url = `${API_BASE}/cost_report?starting_at=${weekAgo.toISOString()}&ending_at=${now.toISOString()}&group_by[]=description&limit=5`;
+      const data = await anthropicFetch(url, apiKey);
+      for (const bucket of (data.data ?? []) as AnthropicCostBucket[]) {
+        for (const result of bucket.results ?? []) {
+          rows.push(flattenObj(result, "cost_report"));
+        }
+      }
+    } catch { /* cost report supplementary */ }
+
+    const fieldSet = new Set<string>();
+    for (const row of rows) {
+      for (const k of Object.keys(row)) fieldSet.add(k);
+    }
+
+    return { rows, availableFields: [...fieldSet].sort() };
   },
 
   async fetchUsage(

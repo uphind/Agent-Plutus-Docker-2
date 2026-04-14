@@ -93,9 +93,10 @@ export function TopBar({ user }: TopBarProps) {
       return;
     }
     try {
-      const [overview, deptsData] = await Promise.all([
+      const [overview, deptsData, settingsData] = await Promise.all([
         api.getOverview(30),
         api.getDepartments().catch(() => ({ departments: [] })),
+        api.getSettings().catch(() => ({ userCount: 0, providerCount: 0 })),
       ]);
       const deps = deptsData.departments ?? [];
       const isEmpty = overview.activeProviders === 0 && overview.topUsers.length === 0 && overview.totals.costUsd === 0;
@@ -104,9 +105,11 @@ export function TopBar({ user }: TopBarProps) {
         setSetupIncomplete(false);
         return;
       }
+      const hasDirectory = (settingsData.userCount ?? 0) > 0;
+      const hasProviders = (settingsData.providerCount ?? 0) > 0;
       const steps: SetupStep[] = [
-        { label: "Connect an AI provider", href: "/dashboard/providers", done: false },
-        { label: "Push your employee directory", href: "/dashboard/settings", done: false },
+        { label: "Push your employee directory", href: "/dashboard/settings?tab=directory-sync", done: hasDirectory },
+        { label: "Connect an AI provider", href: "/dashboard/providers", done: hasProviders },
         { label: "Set department budgets", href: "/dashboard/departments", done: deps.length > 0 },
       ];
       const pending = steps.filter((s) => !s.done);
