@@ -716,7 +716,7 @@ function EndpointCard({ endpoint, baseUrl }: { endpoint: ApiEndpoint; baseUrl: s
   );
 }
 
-export default function ApiDocsPage() {
+export function ApiDocsContent() {
   const [activeProvider, setActiveProvider] = useState<ProviderKey>("anthropic");
   const provider = PROVIDERS[activeProvider];
 
@@ -831,4 +831,8 @@ export default function ApiDocsPage() {
       </div>
     </div>
   );
+}
+
+export default function ApiDocsPage() {
+  return <ApiDocsContent />;
 }

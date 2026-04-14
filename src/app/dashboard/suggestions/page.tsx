@@ -11,7 +11,7 @@ import { formatCurrency } from "@/lib/utils";
 import {
   Lightbulb, DollarSign, UserX, Zap, TrendingDown,
   ChevronRight, ChevronDown, Eye, EyeOff, PiggyBank, Sparkles,
-  Brain, ArrowRight, Users,
+  Brain, ArrowRight, Users, Download, Loader2,
 } from "lucide-react";
 
 interface Suggestion {
@@ -113,6 +113,7 @@ export default function SuggestionsPage() {
   const [data, setData] = useState<SuggestionsData | null>(null);
   const [recData, setRecData] = useState<RecData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dismissed, setDismissedState] = useState<Set<string>>(new Set());
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -164,6 +165,28 @@ export default function SuggestionsPage() {
     setDismissedState(new Set());
     persistDismissed(new Set());
     setShowDismissed(false);
+  };
+
+  const downloadReport = async () => {
+    setDownloading(true);
+    try {
+      const res = await fetch("/api/v1/reports/recommendations");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Report generation failed" }));
+        throw new Error(err.error ?? `Error ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `cost-optimization-report-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // silently fail — the button state resets
+    } finally {
+      setDownloading(false);
+    }
   };
 
   const toggleCat = (cat: string) => {
@@ -285,12 +308,24 @@ export default function SuggestionsPage() {
   return (
     <div className="space-y-5">
       <Header title="Suggestions" description="Actionable recommendations to optimize your AI spend"
-        action={dismissed.size > 0 ? (
-          <button onClick={() => setShowDismissed(!showDismissed)} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors">
-            {showDismissed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-            {showDismissed ? "Hide" : "Show"} dismissed ({dismissed.size})
-          </button>
-        ) : undefined}
+        action={
+          <div className="flex items-center gap-3">
+            {dismissed.size > 0 && (
+              <button onClick={() => setShowDismissed(!showDismissed)} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors">
+                {showDismissed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                {showDismissed ? "Hide" : "Show"} dismissed ({dismissed.size})
+              </button>
+            )}
+            <button
+              onClick={downloadReport}
+              disabled={downloading}
+              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+            >
+              {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              {downloading ? "Generating..." : "Export Report"}
+            </button>
+          </div>
+        }
       />
 
       {/* KPI row */}

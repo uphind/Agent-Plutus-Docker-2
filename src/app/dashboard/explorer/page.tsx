@@ -8,6 +8,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import Link from "next/link";
 import { api } from "@/lib/dashboard-api";
 import { formatCurrency, formatTokens, formatNumber, PROVIDER_LABELS, PROVIDER_COLORS } from "@/lib/utils";
+import { TOOLTIPS } from "@/lib/tooltip-content";
 import {
   Search, ArrowUpDown, ChevronRight, ChevronDown, ChevronUp,
   DollarSign, Layers, Hash, Zap, X, SlidersHorizontal,
@@ -144,6 +145,7 @@ export default function ExplorerPage() {
       <Header
         title="Cost Explorer"
         description="Analyze AI spend across any dimension"
+        tooltip={TOOLTIPS.costExplorer}
       />
 
       {/* ══════════ Toolbar ══════════ */}
@@ -356,7 +358,7 @@ export default function ExplorerPage() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>Detailed Breakdown</CardTitle>
+            <CardTitle tooltip={TOOLTIPS.detailedBreakdown}>Detailed Breakdown</CardTitle>
             <div className="flex items-center gap-2">
               {searchQuery && (
                 <Badge variant="outline" className="text-[10px]">

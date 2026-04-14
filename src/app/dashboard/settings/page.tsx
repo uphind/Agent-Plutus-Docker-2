@@ -1,13 +1,17 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Header } from "@/components/layout/header";
+import { Tabs } from "@/components/ui/tabs";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Bot, Eye, EyeOff, Languages, Pencil, Check as CheckIcon, RefreshCw } from "lucide-react";
 import { useTerminology } from "@/lib/terminology";
+import { DirectorySyncContent } from "@/app/dashboard/settings/graph/page";
+import { ApiDocsContent } from "@/app/dashboard/api-docs/page";
 
 const LLM_PROVIDER_OPTIONS = [
   { value: "openai", label: "OpenAI" },
@@ -45,10 +49,16 @@ const TERMINOLOGY_DEFAULTS: Array<{ systemTerm: string; label: string; descripti
   { systemTerm: "team", label: "Team", description: "Sub-unit within a department" },
   { systemTerm: "user", label: "User", description: "Individual person in the system" },
   { systemTerm: "seat", label: "User", description: "Licensed position / active account" },
-  { systemTerm: "seat optimization", label: "User Optimization", description: "Feature for analyzing user utilization" },
+  { systemTerm: "seat optimization", label: "User Analysis", description: "Feature for analyzing user utilization" },
 ];
 
-export default function SettingsPage() {
+const SETTINGS_TABS = [
+  { id: "general", label: "General" },
+  { id: "directory-sync", label: "Directory Sync" },
+  { id: "api-docs", label: "API Docs" },
+];
+
+function GeneralSettings() {
   const [aiConfig, setAiConfig] = useState<AiAssistantConfig>({ provider: "openai", model: "gpt-4o-mini", apiKey: "" });
   const [aiSaved, setAiSaved] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
@@ -70,7 +80,7 @@ export default function SettingsPage() {
         setAvailableModels(data.models ?? []);
       }
     } catch {
-      // silently fail — keep existing models
+      // silently fail
     } finally {
       setModelsLoading(false);
     }
@@ -106,11 +116,6 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <Header
-        title="Settings"
-        description="Configure your Agent Plutus instance"
-      />
-
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -298,7 +303,40 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
 
+export default function SettingsPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const tabParam = searchParams.get("tab");
+  const [activeTab, setActiveTab] = useState(tabParam || "general");
+
+  useEffect(() => {
+    if (tabParam && tabParam !== activeTab) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam, activeTab]);
+
+  const handleTabChange = (id: string) => {
+    setActiveTab(id);
+    const url = id === "general" ? "/dashboard/settings" : `/dashboard/settings?tab=${id}`;
+    router.replace(url, { scroll: false });
+  };
+
+  return (
+    <div className="space-y-6">
+      <Header
+        title="Settings"
+        description="Configure your Agent Plutus instance"
+      />
+
+      <Tabs tabs={SETTINGS_TABS} active={activeTab} onChange={handleTabChange} />
+
+      {activeTab === "general" && <GeneralSettings />}
+      {activeTab === "directory-sync" && <DirectorySyncContent />}
+      {activeTab === "api-docs" && <ApiDocsContent />}
     </div>
   );
 }

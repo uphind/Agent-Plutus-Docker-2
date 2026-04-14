@@ -13,16 +13,12 @@ import {
   UsersRound,
   FileBarChart,
   TrendingUp,
-  Lightbulb,
   ChevronLeft,
   ChevronRight,
   LogOut,
   Compass,
-  // Trophy,
   ChartLine,
-  BarChart3,
   ShieldCheck,
-  ScrollText,
   Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -59,20 +55,18 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: "INSIGHTS",
     items: [
-      { name: "Forecasting", href: "/dashboard/forecasting", icon: ChartLine },
-      { name: "User Optimization", termKey: "seat optimization", href: "/dashboard/seat-optimization", icon: Users },
-      { name: "Analytics", href: "/dashboard/analytics", icon: TrendingUp },
       { name: "Models", href: "/dashboard/models", icon: Boxes },
       { name: "Explorer", href: "/dashboard/explorer", icon: Compass },
-      { name: "Reports", href: "/dashboard/reports", icon: FileBarChart },
-      { name: "Suggestions", href: "/dashboard/suggestions", icon: Lightbulb },
-      { name: "Cost Optimizer", href: "/dashboard/classify", icon: Sparkles },
+      { name: "Analytics", href: "/dashboard/analytics", icon: TrendingUp },
+      { name: "Forecasting", href: "/dashboard/forecasting", icon: ChartLine },
+      { name: "User Analysis", termKey: "seat optimization", href: "/dashboard/seat-optimization", icon: Users },
     ],
   },
   {
     label: "INTELLIGENCE",
     items: [
-      { name: "Benchmarks", href: "/dashboard/benchmarks", icon: BarChart3 },
+      { name: "Suggestions", href: "/dashboard/suggestions", icon: Sparkles },
+      { name: "Reports", href: "/dashboard/reports", icon: FileBarChart },
     ],
   },
   {
@@ -80,8 +74,6 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { name: "Providers", href: "/dashboard/providers", icon: Plug },
       { name: "Provider Health", href: "/dashboard/provider-health", icon: ShieldCheck },
-      { name: "Directory Sync", href: "/dashboard/settings/graph", icon: Users },
-      { name: "API Docs", href: "/dashboard/api-docs", icon: ScrollText },
       { name: "Settings", href: "/dashboard/settings", icon: Settings },
     ],
   },

@@ -434,12 +434,12 @@ export default function AnalyticsPage() {
           {/* Tabs */}
           <Tabs
             tabs={[
-              { id: "usage", label: "Usage Over Time" },
-              { id: "heatmap", label: "Heatmap" },
-              { id: "share", label: "Model Share" },
-              { id: "efficiency", label: "Cost Efficiency" },
-              { id: "ranking", label: "Model Ranking" },
-              { id: "adoption", label: "Adoption Timeline" },
+              { id: "usage", label: "Usage Over Time", tooltip: TOOLTIPS.usageOverTime },
+              { id: "heatmap", label: "Heatmap", tooltip: TOOLTIPS.heatmap },
+              { id: "share", label: "Model Share", tooltip: TOOLTIPS.modelShare },
+              { id: "efficiency", label: "Cost Efficiency", tooltip: TOOLTIPS.costEfficiency },
+              { id: "ranking", label: "Model Ranking", tooltip: TOOLTIPS.modelRanking },
+              { id: "adoption", label: "Adoption Timeline", tooltip: TOOLTIPS.adoptionTimeline },
             ]}
             active={tab}
             onChange={setTab}

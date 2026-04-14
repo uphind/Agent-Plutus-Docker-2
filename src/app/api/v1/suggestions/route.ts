@@ -142,7 +142,7 @@ export async function GET() {
         affectedEntities: users.slice(0, 10).map((u) => ({
           type: "user", id: u.user_email, name: u.user_name || u.user_email,
         })),
-        linkTo: "/dashboard/classify",
+        linkTo: "/dashboard/suggestions",
       });
     }
   }

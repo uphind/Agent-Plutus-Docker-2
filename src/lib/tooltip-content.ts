@@ -30,9 +30,14 @@ export const TOOLTIPS = {
   spendByModel: "Cost breakdown by individual AI model. Shows the top models by spend.",
   modelShare: "Each model's percentage of total spend over time — shows how model usage shifts.",
   costEfficiency: "Average cost per request over time — lower values indicate more cost-efficient usage.",
+  usageOverTime: "Total spend and token usage plotted over the selected time period — spot trends, spikes, and seasonal patterns.",
+  heatmap: "A calendar heatmap of daily spend intensity — darker cells mean higher cost days.",
+  modelRanking: "Models ranked by total spend, with token breakdowns and cost-per-request metrics.",
+  adoptionTimeline: "When each model was first and last used, and how many active days it has — track adoption and retirement.",
 
   // Explorer
   costExplorer: "Slice and dice spend data by any combination of provider, model, department, team, or user.",
+  detailedBreakdown: "Granular table of every group combination with cost, tokens, and request counts. Click column headers to sort.",
 
   // Reports
   projectedMonthEnd: "Extrapolation of current month's spend to the end of the month, based on the daily burn rate so far.",

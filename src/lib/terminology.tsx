@@ -11,7 +11,7 @@ const SYSTEM_TERMS: Record<string, string> = {
   users: "Users",
   seat: "User",
   seats: "Users",
-  "seat optimization": "User Optimization",
+  "seat optimization": "User Analysis",
 };
 
 interface TerminologyContextValue {

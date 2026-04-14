@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Header } from "@/components/layout/header";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,7 +36,7 @@ const TARGET_FIELDS = [
   { key: "status", label: "Status", required: false, description: "Active or inactive status" },
 ];
 
-export default function GraphIntegrationPage() {
+export function DirectorySyncContent() {
   const [step, setStep] = useState<"connect" | "map" | "done">("connect");
   const [tenantId, setTenantId] = useState("");
   const [clientId, setClientId] = useState("");
@@ -249,11 +248,6 @@ export default function GraphIntegrationPage() {
 
   return (
     <div className="space-y-6">
-      <Header
-        title="Directory Sync"
-        description="Connect your Microsoft Graph API (Active Directory) and map fields to Agent Plutus"
-      />
-
       {/* Step 1: Connect */}
       <Card>
         <CardHeader>
@@ -552,4 +546,8 @@ export default function GraphIntegrationPage() {
       )}
     </div>
   );
+}
+
+export default function GraphIntegrationPage() {
+  return <DirectorySyncContent />;
 }

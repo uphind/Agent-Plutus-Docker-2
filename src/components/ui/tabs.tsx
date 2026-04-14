@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
 
 const COUNT_COLORS: Record<string, { bg: string; text: string }> = {
   red: { bg: "#ef4444", text: "#fff" },
@@ -11,7 +12,7 @@ const COUNT_COLORS: Record<string, { bg: string; text: string }> = {
 };
 
 interface TabsProps {
-  tabs: Array<{ id: string; label: string; count?: number; countColor?: string }>;
+  tabs: Array<{ id: string; label: string; count?: number; countColor?: string; tooltip?: string }>;
   active: string;
   onChange: (id: string) => void;
   className?: string;
@@ -35,6 +36,9 @@ export function Tabs({ tabs, active, onChange, className }: TabsProps) {
           >
             <span className="flex items-center gap-2">
               {tab.label}
+              {tab.tooltip && (
+                <InfoTooltip text={tab.tooltip} iconSize={12} />
+              )}
               {tab.count !== undefined && (
                 <span
                   className={cn(
