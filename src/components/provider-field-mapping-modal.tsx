@@ -66,6 +66,7 @@ export function ProviderFieldMappingModal({ open, onClose, provider }: Props) {
     if (open) {
       load();
       setSaved(false);
+      setSaveError(null);
       setSampleValues({});
       setHasFetched(false);
       setFetchError(null);
@@ -163,15 +164,18 @@ export function ProviderFieldMappingModal({ open, onClose, provider }: Props) {
   };
 
   // --- Save ---
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   const handleSave = async () => {
     setSaving(true);
+    setSaveError(null);
     try {
       await api.saveProviderFieldMapping(provider, mappings);
       setSaved(true);
       setIsDefault(false);
       setTimeout(() => setSaved(false), 3000);
-    } catch {
-      // silently fail
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to save mappings");
     } finally {
       setSaving(false);
     }
@@ -374,6 +378,11 @@ export function ProviderFieldMappingModal({ open, onClose, provider }: Props) {
             {saved && (
               <span className="text-xs text-emerald-600 font-medium">
                 Mappings saved successfully
+              </span>
+            )}
+            {saveError && (
+              <span className="text-xs text-destructive font-medium">
+                {saveError}
               </span>
             )}
           </div>

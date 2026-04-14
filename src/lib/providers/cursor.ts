@@ -259,6 +259,13 @@ export const cursorAdapter: ProviderAdapter = {
           metadata: {
             accepted_diffs: day.total_accepted_diffs,
             rejected_diffs: day.total_rejected_diffs,
+            _raw: {
+              "agent_edits.total_lines_suggested": day.total_lines_suggested,
+              "agent_edits.total_lines_accepted": day.total_lines_accepted,
+              "agent_edits.total_suggested_diffs": day.total_suggested_diffs,
+              "agent_edits.total_accepted_diffs": day.total_accepted_diffs,
+              "agent_edits.total_rejected_diffs": day.total_rejected_diffs,
+            },
           },
         });
       }
@@ -297,7 +304,10 @@ export const cursorAdapter: ProviderAdapter = {
               cachedTokens: 0,
               requestsCount: stats.messages,
               costUsd: 0,
-              metadata: { unique_users: stats.users },
+              metadata: {
+                unique_users: stats.users,
+                _raw: { model: modelName },
+              },
             });
           }
         }
@@ -364,6 +374,24 @@ export const cursorAdapter: ProviderAdapter = {
               fast_premium_requests: spend?.fastPremiumRequests ?? 0,
               most_used_model: row.mostUsedModel,
               client_version: row.clientVersion,
+              _raw: {
+                email: row.email,
+                mostUsedModel: row.mostUsedModel,
+                subscriptionIncludedReqs: row.subscriptionIncludedReqs,
+                composerRequests: row.composerRequests,
+                chatRequests: row.chatRequests,
+                agentRequests: row.agentRequests,
+                totalLinesAdded: row.totalLinesAdded,
+                totalLinesDeleted: row.totalLinesDeleted,
+                acceptedLinesAdded: row.acceptedLinesAdded,
+                acceptedLinesDeleted: row.acceptedLinesDeleted,
+                totalTabsShown: row.totalTabsShown,
+                totalTabsAccepted: row.totalTabsAccepted,
+                cmdkUsages: row.cmdkUsages,
+                clientVersion: row.clientVersion,
+                "spend.fastPremiumRequests": spend?.fastPremiumRequests ?? 0,
+                "spend.monthlyLimitDollars": spend?.monthlyLimitDollars ?? null,
+              },
             },
           });
         }
@@ -393,6 +421,25 @@ export const cursorAdapter: ProviderAdapter = {
               spend_limit_dollars: spend?.monthlyLimitDollars ?? null,
               hard_limit_dollars: spend?.hardLimitOverrideDollars ?? null,
               overage_total_cents: spend?.spendCents ?? 0,
+              _raw: {
+                email: row.email,
+                mostUsedModel: row.mostUsedModel,
+                usageBasedReqs: row.usageBasedReqs,
+                composerRequests: row.composerRequests,
+                chatRequests: row.chatRequests,
+                agentRequests: row.agentRequests,
+                totalLinesAdded: row.totalLinesAdded,
+                totalLinesDeleted: row.totalLinesDeleted,
+                acceptedLinesAdded: row.acceptedLinesAdded,
+                acceptedLinesDeleted: row.acceptedLinesDeleted,
+                totalTabsShown: row.totalTabsShown,
+                totalTabsAccepted: row.totalTabsAccepted,
+                cmdkUsages: row.cmdkUsages,
+                clientVersion: row.clientVersion,
+                "spend.spendCents": spend?.spendCents ?? 0,
+                "spend.fastPremiumRequests": spend?.fastPremiumRequests ?? 0,
+                "spend.monthlyLimitDollars": spend?.monthlyLimitDollars ?? null,
+              },
             },
           });
         }

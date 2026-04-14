@@ -203,7 +203,22 @@ async function fetchClaudeCodeAnalytics(
               linesSuggested: totalAccepted + totalRejected,
               acceptRate:
                 totalActions > 0 ? totalAccepted / totalActions : undefined,
-              metadata: productivity,
+              metadata: {
+                ...productivity,
+                _raw: {
+                  "actor.email_address": rec.actor.email_address,
+                  "actor.api_key_name": rec.actor.api_key_name,
+                  model: mb.model,
+                  "model_breakdown.tokens.input": mb.tokens.input,
+                  "model_breakdown.tokens.output": mb.tokens.output,
+                  "model_breakdown.tokens.cache_read": mb.tokens.cache_read,
+                  "model_breakdown.tokens.cache_creation": mb.tokens.cache_creation,
+                  "model_breakdown.estimated_cost.amount": mb.estimated_cost.amount,
+                  "core_metrics.num_sessions": rec.core_metrics.num_sessions,
+                  "tool_actions.total_accepted": totalAccepted,
+                  "tool_actions.total_actions": totalActions,
+                },
+              },
             });
           }
         } else {
@@ -221,7 +236,16 @@ async function fetchClaudeCodeAnalytics(
             linesSuggested: totalAccepted + totalRejected,
             acceptRate:
               totalActions > 0 ? totalAccepted / totalActions : undefined,
-            metadata: productivity,
+            metadata: {
+              ...productivity,
+              _raw: {
+                "actor.email_address": rec.actor.email_address,
+                "actor.api_key_name": rec.actor.api_key_name,
+                "core_metrics.num_sessions": rec.core_metrics.num_sessions,
+                "tool_actions.total_accepted": totalAccepted,
+                "tool_actions.total_actions": totalActions,
+              },
+            },
           });
         }
       }
@@ -351,6 +375,18 @@ export const anthropicAdapter: ProviderAdapter = {
               api_key_id: result.api_key_id,
               service_tier: result.service_tier,
               context_window: result.context_window,
+              _raw: {
+                model: result.model,
+                api_key_id: result.api_key_id,
+                uncached_input_tokens: result.uncached_input_tokens ?? 0,
+                output_tokens: result.output_tokens ?? 0,
+                cache_read_input_tokens: result.cache_read_input_tokens ?? 0,
+                "cache_creation.ephemeral_1h_input_tokens": result.cache_creation?.ephemeral_1h_input_tokens ?? 0,
+                "cache_creation.ephemeral_5m_input_tokens": result.cache_creation?.ephemeral_5m_input_tokens ?? 0,
+                workspace_id: result.workspace_id,
+                service_tier: result.service_tier,
+                context_window: result.context_window,
+              },
             },
           });
         }
@@ -387,6 +423,8 @@ export const anthropicAdapter: ProviderAdapter = {
             );
             if (matchingRecord) {
               matchingRecord.costUsd += amountUsd;
+              const raw = (matchingRecord.metadata as Record<string, unknown> | undefined)?._raw as Record<string, unknown> | undefined;
+              if (raw) raw["cost_report.amount"] = (Number(raw["cost_report.amount"]) || 0) + amountUsd;
             }
           }
         }

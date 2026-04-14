@@ -62,11 +62,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { provider, mappings } = parsed.data;
+  const { provider, mappings: rawMappings } = parsed.data;
 
   if (!VALID_PROVIDERS.includes(provider)) {
     return NextResponse.json({ error: "Invalid provider" }, { status: 400 });
   }
+
+  // Deduplicate by targetField — last mapping wins (matches UI behavior)
+  const deduped = new Map<string, string>();
+  for (const m of rawMappings) {
+    deduped.set(m.targetField, m.sourceField);
+  }
+  const mappings = [...deduped.entries()].map(([targetField, sourceField]) => ({
+    sourceField,
+    targetField,
+  }));
 
   const et = entityType(provider);
 

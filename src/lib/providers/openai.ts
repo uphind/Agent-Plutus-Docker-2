@@ -149,6 +149,22 @@ export const openaiAdapter: ProviderAdapter = {
             inputAudioTokens: result.input_audio_tokens ?? 0,
             outputAudioTokens: result.output_audio_tokens ?? 0,
             isBatch: result.batch ?? false,
+            metadata: {
+              _raw: {
+                model: result.model,
+                user_id: result.user_id,
+                api_key_id: result.api_key_id,
+                input_tokens: result.input_tokens ?? 0,
+                output_tokens: result.output_tokens ?? 0,
+                input_cached_tokens: result.input_cached_tokens ?? 0,
+                input_audio_tokens: result.input_audio_tokens ?? 0,
+                output_audio_tokens: result.output_audio_tokens ?? 0,
+                num_model_requests: result.num_model_requests ?? 0,
+                batch: result.batch ?? false,
+                service_tier: result.service_tier,
+                project_id: result.project_id,
+              },
+            },
           });
         }
       }
@@ -181,6 +197,8 @@ export const openaiAdapter: ProviderAdapter = {
               );
               if (matchingRecord) {
                 matchingRecord.costUsd += result.amount.value;
+                const raw = (matchingRecord.metadata as Record<string, unknown> | undefined)?._raw as Record<string, unknown> | undefined;
+                if (raw) raw["cost_report.amount"] = (Number(raw["cost_report.amount"]) || 0) + result.amount.value;
               }
             }
           }

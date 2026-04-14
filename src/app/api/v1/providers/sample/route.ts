@@ -46,9 +46,17 @@ export async function GET(request: NextRequest) {
       rowCount: sample.rows.length,
     });
   } catch (err) {
+    console.error(`[providers/sample] ${provider}:`, err);
+    const isAuthError =
+      err instanceof Error &&
+      (err.message.includes("401") || err.message.includes("403"));
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to fetch sample data" },
-      { status: 500 }
+      {
+        error: isAuthError
+          ? "Authentication failed — check your API key"
+          : "Failed to fetch sample data from the provider",
+      },
+      { status: isAuthError ? 401 : 500 }
     );
   }
 }

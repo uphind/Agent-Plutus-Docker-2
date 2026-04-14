@@ -5,7 +5,6 @@ import { getAccessToken, fetchGraphUsers } from "@/lib/graph/client";
 import { mapGraphUsers } from "@/lib/graph/mapper";
 import { Provider, Prisma } from "@/generated/prisma/client";
 import type { NormalizedUsageRecord } from "@/lib/providers/types";
-import { getDefaultMappings } from "@/lib/providers/field-definitions";
 
 interface FieldMappingRule {
   sourceField: string;
@@ -14,32 +13,67 @@ interface FieldMappingRule {
 
 /**
  * Load provider field mappings saved by the user.
- * Falls back to built-in defaults when nothing is stored.
+ * Returns null when nothing is stored (= use adapter defaults as-is).
  */
 async function loadProviderMappings(
   orgId: string,
   provider: Provider
-): Promise<FieldMappingRule[]> {
+): Promise<FieldMappingRule[] | null> {
   const stored = await prisma.fieldMapping.findMany({
     where: { orgId, entityType: `provider:${provider}` },
     select: { sourceField: true, targetField: true },
   });
-  return stored.length > 0 ? stored : getDefaultMappings(provider);
+  return stored.length > 0 ? stored : null;
+}
+
+const STRING_FIELDS = new Set(["userRef", "model", "apiKeyId"]);
+const NUMBER_FIELDS = new Set([
+  "inputTokens", "outputTokens", "cachedTokens", "requestsCount",
+  "costUsd", "inputAudioTokens", "outputAudioTokens",
+  "linesAccepted", "linesSuggested", "acceptRate",
+]);
+
+function coerceValue(targetField: string, value: unknown): unknown {
+  if (value === null || value === undefined) return null;
+  if (STRING_FIELDS.has(targetField)) return String(value);
+  if (NUMBER_FIELDS.has(targetField)) return Number(value) || 0;
+  if (targetField === "isBatch") return Boolean(value);
+  if (targetField === "date") {
+    if (value instanceof Date) return value;
+    return new Date(typeof value === "number" ? value * 1000 : String(value));
+  }
+  return value;
 }
 
 /**
- * Apply user-defined field mappings to a set of records produced by an adapter.
- * For any target field the user has remapped, the value is swapped from the
- * metadata bag (where adapters stash raw source values) onto the canonical field.
+ * Apply user-defined field mappings to records produced by an adapter.
+ * Each adapter stashes raw source values in `metadata._raw`.
+ * When the user has saved custom mappings, this function reads from `_raw`
+ * and writes the coerced values onto the NormalizedUsageRecord fields.
+ * When no custom mappings exist (null), adapter output is used as-is.
  */
 export function applyFieldMappings(
   records: NormalizedUsageRecord[],
-  _mappings: FieldMappingRule[]
+  mappings: FieldMappingRule[] | null
 ): NormalizedUsageRecord[] {
-  // Currently a pass-through; adapters use hardcoded logic.
-  // As adapters are updated to stash raw source values in `metadata`,
-  // this function will remap them according to the user's saved configuration.
-  return records;
+  if (!mappings) return records;
+
+  return records.map((record) => {
+    const raw = (record.metadata as Record<string, unknown> | undefined)?._raw as
+      | Record<string, unknown>
+      | undefined;
+    if (!raw) return record;
+
+    const remapped = { ...record };
+    for (const { sourceField, targetField } of mappings) {
+      const value = raw[sourceField];
+      if (value !== undefined) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (remapped as any)[targetField] = coerceValue(targetField, value);
+      }
+    }
+    return remapped;
+  });
 }
 async function withRetry<T>(
   fn: () => Promise<T>,

@@ -146,6 +146,7 @@ export const CURSOR_SOURCE_FIELDS: FieldDef[] = [
   { key: "agent_edits.total_lines_suggested", label: "agent_edits.total_lines_suggested", description: "Agent total lines suggested" },
   { key: "agent_edits.total_lines_accepted",  label: "agent_edits.total_lines_accepted",  description: "Agent total lines accepted" },
   // DAU
+  { key: "dau.date",                label: "dau.date",                description: "Date for the DAU entry" },
   { key: "dau.dau",                 label: "dau.dau",                 description: "Daily active users count" },
 ];
 

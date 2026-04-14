@@ -22,8 +22,8 @@ services:
     expose:
       - "3000"
     environment:
-      # Database (connects to the db service below -- no changes needed)
-      DATABASE_URL: "postgresql://plutus:plutus_secret@db:5432/agent_plutus?schema=public"
+      # Database (connects to the db service below)
+      DATABASE_URL: "postgresql://plutus:${POSTGRES_PASSWORD:-plutus_secret}@db:5432/agent_plutus?schema=public"
 
       # Secrets -- CHANGE THESE in your .env file
       ENCRYPTION_KEY: "${ENCRYPTION_KEY:-change-me-to-a-32-char-secret!!}"
