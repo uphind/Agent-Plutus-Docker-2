@@ -24,18 +24,26 @@ else
   fi
 
   if [ "$IS_IP" = "yes" ] || [ "$DOMAIN" = "localhost" ]; then
-    SITE_ADDR=":443"
-  else
-    SITE_ADDR="${DOMAIN}:443"
-  fi
+    cat > "$CADDYFILE" <<CEOF
+{
+  default_sni ${DOMAIN}
+}
 
-  cat > "$CADDYFILE" <<EOF
-${SITE_ADDR} {
+https:// {
   reverse_proxy app:3000
   ${TLS_LINE}
 }
-EOF
-  echo "Caddy config: https://${DOMAIN}:443 (${SITE_ADDR}) tls=${TLS_LINE:-auto}"
+CEOF
+  else
+    cat > "$CADDYFILE" <<CEOF
+${DOMAIN}:443 {
+  reverse_proxy app:3000
+  ${TLS_LINE}
+}
+CEOF
+  fi
+
+  echo "Caddy config: https://${DOMAIN}:443 tls=${TLS_LINE:-auto}"
 fi
 
 exec caddy run --config "$CADDYFILE" --adapter caddyfile
