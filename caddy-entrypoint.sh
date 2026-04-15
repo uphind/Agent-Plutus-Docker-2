@@ -29,7 +29,7 @@ else
   default_sni ${DOMAIN}
 }
 
-https:// {
+:443 {
   reverse_proxy app:3000
   ${TLS_LINE}
 }
