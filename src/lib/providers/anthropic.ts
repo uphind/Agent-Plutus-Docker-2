@@ -283,13 +283,19 @@ export const anthropicAdapter: ProviderAdapter = {
     const now = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 86400000);
 
-    // Messages usage — grab first page only
+    // Messages usage — sample recent rows. We use hourly buckets because
+    // Anthropic only finalizes daily buckets after the UTC day closes, so a
+    // same-day sample with `bucket_width=1d` returns nothing on fresh orgs.
+    // We scan up to a week of hours and stop once we've collected enough rows
+    // for the field-mapping UI.
     try {
-      const url = `${API_BASE}/usage_report/messages?starting_at=${weekAgo.toISOString()}&ending_at=${now.toISOString()}&bucket_width=1d&group_by[]=model&group_by[]=api_key_id&limit=5`;
+      const SAMPLE_TARGET_ROWS = 25;
+      const url = `${API_BASE}/usage_report/messages?starting_at=${weekAgo.toISOString()}&ending_at=${now.toISOString()}&bucket_width=1h&group_by[]=model&group_by[]=api_key_id&limit=168`;
       const data = await anthropicFetch(url, apiKey);
-      for (const bucket of (data.data ?? []) as AnthropicUsageBucket[]) {
+      outer: for (const bucket of (data.data ?? []) as AnthropicUsageBucket[]) {
         for (const result of bucket.results ?? []) {
           rows.push(flattenObj({ starting_at: bucket.starting_at, ...result }));
+          if (rows.length >= SAMPLE_TARGET_ROWS) break outer;
         }
       }
     } catch { /* endpoint may not be available */ }
@@ -340,60 +346,115 @@ export const anthropicAdapter: ProviderAdapter = {
     const records: ProviderFetchResult["records"] = [];
 
     // 1. Messages Usage Report (general API usage, keyed by api_key_id)
+    //
+    // We request hourly buckets (`bucket_width=1h`) instead of daily because
+    // Anthropic's daily aggregation only finalizes after the UTC day closes —
+    // so a same-day "Refresh" against `1d` returns empty and the dashboard
+    // looks broken. Hourly buckets surface within minutes of each hour ending.
+    // We aggregate the hourly results back into per-(day, model, api_key_id)
+    // records to match the existing dedup key on `usage_dedup`.
+    type AggKey = string;
+    interface Agg {
+      date: Date;
+      model: string | null;
+      apiKeyId: string | null;
+      workspaceId?: string;
+      serviceTier?: string;
+      contextWindow?: string;
+      uncachedInputTokens: number;
+      outputTokens: number;
+      cacheReadInputTokens: number;
+      cacheCreation1h: number;
+      cacheCreation5m: number;
+    }
+    const agg = new Map<AggKey, Agg>();
+
+    const startOfUtcDay = (iso: string): Date => {
+      const d = new Date(iso);
+      d.setUTCHours(0, 0, 0, 0);
+      return d;
+    };
+
     let usagePage: string | null = null;
     let hasMore = true;
 
     while (hasMore) {
-      let url = `${API_BASE}/usage_report/messages?starting_at=${startDate.toISOString()}&ending_at=${endDate.toISOString()}&bucket_width=1d&group_by[]=model&group_by[]=api_key_id`;
+      let url = `${API_BASE}/usage_report/messages?starting_at=${startDate.toISOString()}&ending_at=${endDate.toISOString()}&bucket_width=1h&group_by[]=model&group_by[]=api_key_id&limit=168`;
       if (usagePage) url += `&page=${usagePage}`;
 
       const data = await anthropicFetch(url, apiKey);
       const buckets: AnthropicUsageBucket[] = data.data ?? [];
 
       for (const bucket of buckets) {
-        const bucketDate = new Date(bucket.starting_at);
+        const dayDate = startOfUtcDay(bucket.starting_at);
+        const dayKey = dayDate.toISOString();
         for (const result of bucket.results ?? []) {
-          const cacheCreationTokens =
-            (result.cache_creation?.ephemeral_1h_input_tokens ?? 0) +
-            (result.cache_creation?.ephemeral_5m_input_tokens ?? 0);
-          const cachedTokens =
-            (result.cache_read_input_tokens ?? 0) + cacheCreationTokens;
-
-          records.push({
-            provider: Provider.anthropic,
-            userRef: result.api_key_id ?? null,
-            model: result.model ?? null,
-            date: bucketDate,
-            inputTokens: result.uncached_input_tokens ?? 0,
-            outputTokens: result.output_tokens ?? 0,
-            cachedTokens,
-            requestsCount: 0,
-            costUsd: 0,
-            metadata: {
-              source: "messages_api",
-              workspace_id: result.workspace_id,
-              api_key_id: result.api_key_id,
-              service_tier: result.service_tier,
-              context_window: result.context_window,
-              _raw: {
-                model: result.model,
-                api_key_id: result.api_key_id,
-                uncached_input_tokens: result.uncached_input_tokens ?? 0,
-                output_tokens: result.output_tokens ?? 0,
-                cache_read_input_tokens: result.cache_read_input_tokens ?? 0,
-                "cache_creation.ephemeral_1h_input_tokens": result.cache_creation?.ephemeral_1h_input_tokens ?? 0,
-                "cache_creation.ephemeral_5m_input_tokens": result.cache_creation?.ephemeral_5m_input_tokens ?? 0,
-                workspace_id: result.workspace_id,
-                service_tier: result.service_tier,
-                context_window: result.context_window,
-              },
-            },
-          });
+          const key = `${dayKey}|${result.model ?? ""}|${result.api_key_id ?? ""}`;
+          let entry = agg.get(key);
+          if (!entry) {
+            entry = {
+              date: dayDate,
+              model: result.model ?? null,
+              apiKeyId: result.api_key_id ?? null,
+              workspaceId: result.workspace_id,
+              serviceTier: result.service_tier,
+              contextWindow: result.context_window,
+              uncachedInputTokens: 0,
+              outputTokens: 0,
+              cacheReadInputTokens: 0,
+              cacheCreation1h: 0,
+              cacheCreation5m: 0,
+            };
+            agg.set(key, entry);
+          }
+          entry.uncachedInputTokens += result.uncached_input_tokens ?? 0;
+          entry.outputTokens += result.output_tokens ?? 0;
+          entry.cacheReadInputTokens += result.cache_read_input_tokens ?? 0;
+          entry.cacheCreation1h +=
+            result.cache_creation?.ephemeral_1h_input_tokens ?? 0;
+          entry.cacheCreation5m +=
+            result.cache_creation?.ephemeral_5m_input_tokens ?? 0;
         }
       }
 
       hasMore = data.has_more ?? false;
       usagePage = data.next_page ?? null;
+    }
+
+    for (const entry of agg.values()) {
+      const cacheCreationTokens = entry.cacheCreation1h + entry.cacheCreation5m;
+      const cachedTokens = entry.cacheReadInputTokens + cacheCreationTokens;
+
+      records.push({
+        provider: Provider.anthropic,
+        userRef: entry.apiKeyId,
+        model: entry.model,
+        date: entry.date,
+        inputTokens: entry.uncachedInputTokens,
+        outputTokens: entry.outputTokens,
+        cachedTokens,
+        requestsCount: 0,
+        costUsd: 0,
+        metadata: {
+          source: "messages_api",
+          workspace_id: entry.workspaceId,
+          api_key_id: entry.apiKeyId,
+          service_tier: entry.serviceTier,
+          context_window: entry.contextWindow,
+          _raw: {
+            model: entry.model,
+            api_key_id: entry.apiKeyId,
+            uncached_input_tokens: entry.uncachedInputTokens,
+            output_tokens: entry.outputTokens,
+            cache_read_input_tokens: entry.cacheReadInputTokens,
+            "cache_creation.ephemeral_1h_input_tokens": entry.cacheCreation1h,
+            "cache_creation.ephemeral_5m_input_tokens": entry.cacheCreation5m,
+            workspace_id: entry.workspaceId,
+            service_tier: entry.serviceTier,
+            context_window: entry.contextWindow,
+          },
+        },
+      });
     }
 
     // 2. Cost Report — merge into Messages records
