@@ -2,7 +2,38 @@
 
 Enterprise AI usage analytics platform. Connects to your AI providers (Anthropic, OpenAI, Cursor, Vertex AI, Gemini), cross-references usage with your employee directory, and gives you per-user, per-team, and per-department cost visibility.
 
-## Quick Start (Docker)
+## Quick Start (one command)
+
+On a fresh Ubuntu/Debian server:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/uphind/Agent-Plutus-Docker-2/main/install.sh | bash
+```
+
+That's it. The installer will:
+
+1. Install Docker if missing
+2. Clone this repo to `/opt/agent-plutus-docker-2`
+3. Auto-generate all secrets (`ENCRYPTION_KEY`, `AUTH_SECRET`, `POSTGRES_PASSWORD`) — you never touch them
+4. Prompt for your domain, HTTP/HTTPS choice, and SSO settings
+5. Generate self-signed TLS certs if needed
+6. Start all containers and wait until healthy
+7. Print the URL to open
+
+Total time: ~3-5 minutes (mostly the Docker build).
+
+### Already cloned?
+
+```bash
+git clone https://github.com/uphind/Agent-Plutus-Docker-2 && cd Agent-Plutus-Docker-2
+./install.sh
+```
+
+---
+
+## Manual Setup (advanced)
+
+If you'd rather configure each step yourself, follow the manual instructions below.
 
 ### Prerequisites
 
@@ -54,7 +85,7 @@ docker compose version
 ### 2. Clone and configure
 
 ```bash
-git clone https://github.com/uphind/agent-plutus-docker && cd agent-plutus-docker
+git clone https://github.com/uphind/Agent-Plutus-Docker-2 && cd Agent-Plutus-Docker-2
 cp .env.example .env
 ```
 
