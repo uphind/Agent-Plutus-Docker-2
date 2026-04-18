@@ -1,2 +1,8 @@
-# This file is overwritten by caddy-entrypoint.sh at startup.
-# See caddy-entrypoint.sh for the actual configuration logic.
+{
+  default_sni localhost
+}
+
+:443 {
+  reverse_proxy app:3000
+  tls internal
+}
