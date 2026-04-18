@@ -184,29 +184,71 @@ write_env() {
     protocol="http"
   fi
 
+  sso_provider="oidc"
+  sso_issuer=""
+  sso_client_id=""
+  sso_client_secret=""
+  sso_allowed_domains=""
+
   if [ "$protocol" = "https" ]; then
     use_sso=$(prompt_yn "Configure SSO now? (you can also set this up later in .env)" "n")
     if [ "$use_sso" = "y" ]; then
-      sso_provider=$(prompt "SSO provider (oidc or saml)" "oidc")
-      if [ "$sso_provider" = "oidc" ]; then
-        sso_issuer=$(prompt "SSO_ISSUER (e.g. https://login.microsoftonline.com/<tenant-id>/v2.0)")
-        sso_client_id=$(prompt "SSO_CLIENT_ID")
-        sso_client_secret=$(prompt "SSO_CLIENT_SECRET")
-      fi
-      sso_allowed_domains=$(prompt "Allowed email domains (comma-separated, leave blank for any)" "")
-    else
-      sso_provider="oidc"
-      sso_issuer=""
-      sso_client_id=""
-      sso_client_secret=""
-      sso_allowed_domains=""
+      echo ""
+      echo "  ${BOLD}Which identity provider are you using?${RESET}"
+      echo "    1) Microsoft Entra ID (formerly Azure AD)"
+      echo "    2) Okta"
+      echo "    3) Google Workspace"
+      echo "    4) Other OIDC (Auth0, Keycloak, PingFederate, etc.)"
+      echo "    5) SAML 2.0 (AD FS, Shibboleth, etc.)"
+      echo ""
+      local idp_choice
+      idp_choice=$(prompt "Choose 1-5" "1")
+
+      case "$idp_choice" in
+        1)
+          sso_provider="oidc"
+          local tenant_id
+          tenant_id=$(prompt "Microsoft Entra Tenant ID (Directory ID from Azure Portal)")
+          sso_issuer="https://login.microsoftonline.com/${tenant_id}/v2.0"
+          sso_client_id=$(prompt "Application (Client) ID")
+          sso_client_secret=$(prompt "Client Secret VALUE (not the Secret ID)")
+          ;;
+        2)
+          sso_provider="oidc"
+          local okta_domain
+          okta_domain=$(prompt "Okta domain (e.g. yourcompany.okta.com)")
+          sso_issuer="https://${okta_domain}"
+          sso_client_id=$(prompt "Client ID")
+          sso_client_secret=$(prompt "Client Secret")
+          ;;
+        3)
+          sso_provider="oidc"
+          sso_issuer="https://accounts.google.com"
+          sso_client_id=$(prompt "Client ID (ends with .apps.googleusercontent.com)")
+          sso_client_secret=$(prompt "Client Secret")
+          ;;
+        4)
+          sso_provider="oidc"
+          sso_issuer=$(prompt "SSO_ISSUER (issuer URL)")
+          sso_client_id=$(prompt "SSO_CLIENT_ID")
+          sso_client_secret=$(prompt "SSO_CLIENT_SECRET")
+          ;;
+        5)
+          sso_provider="saml"
+          warn "SAML setup requires manual .env editing after install. See SETUP-GUIDE.md."
+          ;;
+        *)
+          warn "Invalid choice — skipping SSO setup. You can configure it later in .env"
+          ;;
+      esac
+
+      sso_allowed_domains=$(prompt "Allowed email domains (comma-separated, blank = allow all from your IdP)" "")
+
+      echo ""
+      info "Important: register this redirect URI in your IdP:"
+      echo "    ${BOLD}${protocol}://${domain}/api/auth/callback/oidc${RESET}"
+      echo ""
     fi
-  else
-    sso_provider="oidc"
-    sso_issuer=""
-    sso_client_id=""
-    sso_client_secret=""
-    sso_allowed_domains=""
   fi
 
   info "Generating secrets..."
