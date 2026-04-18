@@ -1,6 +1,7 @@
 const API_BASE = "/api/v1";
 
-async function apiFetch(path: string, options?: RequestInit) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function apiFetch(path: string, options?: RequestInit): Promise<any> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
@@ -10,7 +11,8 @@ async function apiFetch(path: string, options?: RequestInit) {
   });
 
   const text = await res.text();
-  let body: { error?: string; hint?: string; [key: string]: unknown } = {};
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let body: any = {};
 
   if (text) {
     try {
@@ -26,9 +28,9 @@ async function apiFetch(path: string, options?: RequestInit) {
   }
 
   if (!res.ok) {
-    const msg = body.hint
+    const msg = body?.hint
       ? `${body.error}\n\n${body.hint}`
-      : body.error ?? `Request failed (HTTP ${res.status})`;
+      : body?.error ?? `Request failed (HTTP ${res.status})`;
     throw new Error(msg);
   }
 
