@@ -46,6 +46,7 @@ export const TARGET_FIELDS: FieldDef[] = [
 
 export const ANTHROPIC_SOURCE_FIELDS: FieldDef[] = [
   // Messages API
+  { key: "starting_at",                              label: "starting_at",                               description: "Start of the usage bucket (ISO 8601). Used as the record date." },
   { key: "model",                                    label: "model",                                     description: "Model name (e.g. claude-sonnet-4-20250514)" },
   { key: "api_key_id",                               label: "api_key_id",                                description: "API key identifier" },
   { key: "uncached_input_tokens",                     label: "uncached_input_tokens",                     description: "Non-cached input tokens" },
@@ -72,6 +73,7 @@ export const ANTHROPIC_SOURCE_FIELDS: FieldDef[] = [
 ];
 
 export const ANTHROPIC_DEFAULTS: DefaultMapping[] = [
+  { sourceField: "starting_at",                              targetField: "date" },
   { sourceField: "api_key_id",                               targetField: "userRef" },
   { sourceField: "model",                                    targetField: "model" },
   { sourceField: "uncached_input_tokens",                    targetField: "inputTokens" },
