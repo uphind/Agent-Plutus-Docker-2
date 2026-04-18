@@ -13,27 +13,55 @@ const providerSchema = z.object({
   skip_test: z.boolean().optional(),
 });
 
-export async function GET(request: NextRequest) {
-  const orgId = await getOrgId();
+function dbErrorHint(msg: string): string | undefined {
+  const m = msg.toLowerCase();
+  if (m.includes("password authentication") || m.includes("p1010") || m.includes("p1001")) {
+    return "Database connection failed. Check that POSTGRES_PASSWORD in .env matches the running database.";
+  }
+  if (m.includes("findfirstorthrow") || m.includes("no organization")) {
+    return "No organization record found. Migrations may not have run.";
+  }
+  return undefined;
+}
 
-  const credentials = await prisma.providerCredential.findMany({
-    where: { orgId },
-    select: {
-      id: true,
-      provider: true,
-      label: true,
-      isActive: true,
-      lastSyncAt: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  });
+export async function GET(_request: NextRequest) {
+  try {
+    const orgId = await getOrgId();
 
-  return NextResponse.json({ providers: credentials });
+    const credentials = await prisma.providerCredential.findMany({
+      where: { orgId },
+      select: {
+        id: true,
+        provider: true,
+        label: true,
+        isActive: true,
+        lastSyncAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    return NextResponse.json({ providers: credentials });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load providers";
+    return NextResponse.json(
+      { error: message, hint: dbErrorHint(message) },
+      { status: 500 }
+    );
+  }
 }
 
 export async function POST(request: NextRequest) {
-  const orgId = await getOrgId();
+  let orgId: string;
+  try {
+    orgId = await getOrgId();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to identify organization";
+    return NextResponse.json(
+      { error: message, hint: dbErrorHint(message) },
+      { status: 500 }
+    );
+  }
 
   let body: unknown;
   try {
@@ -55,7 +83,16 @@ export async function POST(request: NextRequest) {
   // Test connection before saving (unless explicitly skipped)
   if (!skip_test) {
     const adapter = getAdapter(provider);
-    const isValid = await adapter.testConnection(api_key);
+    let isValid = false;
+    try {
+      isValid = await adapter.testConnection(api_key);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Connection test failed";
+      return NextResponse.json(
+        { error: `Connection test failed: ${message}` },
+        { status: 422 }
+      );
+    }
     if (!isValid) {
       const hints: Record<string, string> = {
         anthropic:
@@ -80,47 +117,63 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const encryptedApiKey = encrypt(api_key);
+  try {
+    const encryptedApiKey = encrypt(api_key);
 
-  const credential = await prisma.providerCredential.upsert({
-    where: { orgId_provider: { orgId, provider } },
-    create: {
-      orgId,
-      provider,
-      encryptedApiKey,
-      label: label ?? null,
-    },
-    update: {
-      encryptedApiKey,
-      label: label ?? undefined,
-      isActive: true,
-    },
-  });
+    const credential = await prisma.providerCredential.upsert({
+      where: { orgId_provider: { orgId, provider } },
+      create: {
+        orgId,
+        provider,
+        encryptedApiKey,
+        label: label ?? null,
+      },
+      update: {
+        encryptedApiKey,
+        label: label ?? undefined,
+        isActive: true,
+      },
+    });
 
-  return NextResponse.json({
-    success: true,
-    provider: {
-      id: credential.id,
-      provider: credential.provider,
-      label: credential.label,
-      isActive: credential.isActive,
-    },
-  });
+    return NextResponse.json({
+      success: true,
+      provider: {
+        id: credential.id,
+        provider: credential.provider,
+        label: credential.label,
+        isActive: credential.isActive,
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to save credential";
+    return NextResponse.json(
+      { error: message, hint: dbErrorHint(message) },
+      { status: 500 }
+    );
+  }
 }
 
 export async function DELETE(request: NextRequest) {
-  const orgId = await getOrgId();
+  try {
+    const orgId = await getOrgId();
 
-  const { searchParams } = new URL(request.url);
-  const provider = searchParams.get("provider") as Provider | null;
+    const { searchParams } = new URL(request.url);
+    const provider = searchParams.get("provider") as Provider | null;
 
-  if (!provider || !Object.values(Provider).includes(provider)) {
-    return NextResponse.json({ error: "Valid provider query param required" }, { status: 400 });
+    if (!provider || !Object.values(Provider).includes(provider)) {
+      return NextResponse.json({ error: "Valid provider query param required" }, { status: 400 });
+    }
+
+    await prisma.providerCredential.deleteMany({
+      where: { orgId, provider },
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to delete credential";
+    return NextResponse.json(
+      { error: message, hint: dbErrorHint(message) },
+      { status: 500 }
+    );
   }
-
-  await prisma.providerCredential.deleteMany({
-    where: { orgId, provider },
-  });
-
-  return NextResponse.json({ success: true });
 }

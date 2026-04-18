@@ -9,15 +9,30 @@ async function apiFetch(path: string, options?: RequestInit) {
     },
   });
 
+  const text = await res.text();
+  let body: { error?: string; hint?: string; [key: string]: unknown } = {};
+
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      if (!res.ok) {
+        const snippet = text.slice(0, 300).replace(/<[^>]*>/g, "").trim();
+        throw new Error(
+          `Server error (HTTP ${res.status}). Response was not JSON.${snippet ? `\n\n${snippet}` : ""}`
+        );
+      }
+    }
+  }
+
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
     const msg = body.hint
       ? `${body.error}\n\n${body.hint}`
-      : body.error ?? `API error: ${res.status}`;
+      : body.error ?? `Request failed (HTTP ${res.status})`;
     throw new Error(msg);
   }
 
-  return res.json();
+  return body;
 }
 
 async function apiRaw(path: string) {

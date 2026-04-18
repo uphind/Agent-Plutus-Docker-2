@@ -5,22 +5,22 @@ import { getAccessToken, fetchGraphUsers } from "@/lib/graph/client";
 import { mapGraphUsers } from "@/lib/graph/mapper";
 
 export async function POST() {
-  const orgId = await getOrgId();
-
-  const config = await prisma.graphConfig.findUnique({ where: { orgId } });
-  if (!config) {
-    return NextResponse.json(
-      { error: "Graph API not configured" },
-      { status: 404 }
-    );
-  }
-
-  const mappings = await prisma.fieldMapping.findMany({
-    where: { orgId, entityType: "user" },
-    select: { sourceField: true, targetField: true },
-  });
-
   try {
+    const orgId = await getOrgId();
+
+    const config = await prisma.graphConfig.findUnique({ where: { orgId } });
+    if (!config) {
+      return NextResponse.json(
+        { error: "Graph API not configured" },
+        { status: 404 }
+      );
+    }
+
+    const mappings = await prisma.fieldMapping.findMany({
+      where: { orgId, entityType: "user" },
+      select: { sourceField: true, targetField: true },
+    });
+
     const token = await getAccessToken(config.tenantId, config.clientId, config.encryptedSecret);
     const graphUsers = await fetchGraphUsers(token, config.graphEndpoint);
     const directoryUsers = mapGraphUsers(graphUsers, mappings);
@@ -97,9 +97,16 @@ export async function POST() {
       updated,
     });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Sync failed" },
-      { status: 500 }
-    );
+    const message = err instanceof Error ? err.message : "Sync failed";
+    const m = message.toLowerCase();
+    let hint: string | undefined;
+    if (m.includes("password authentication") || m.includes("p1010") || m.includes("p1001")) {
+      hint = "Database connection failed. Check that POSTGRES_PASSWORD in .env matches the running database.";
+    } else if (m.includes("401") || m.includes("invalid_client")) {
+      hint = "Microsoft Graph rejected the credentials. Verify the client secret VALUE (not the Secret ID) and that the app has User.Read.All permission with admin consent granted.";
+    } else if (m.includes("403")) {
+      hint = "Microsoft Graph access denied. The app registration likely needs User.Read.All Application permission with admin consent.";
+    }
+    return NextResponse.json({ error: message, hint }, { status: 500 });
   }
 }
