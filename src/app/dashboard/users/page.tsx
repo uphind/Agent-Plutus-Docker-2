@@ -14,7 +14,7 @@ import { api } from "@/lib/dashboard-api";
 import { formatCurrency, formatTokens, formatNumber } from "@/lib/utils";
 import { useTerminology } from "@/lib/terminology";
 import {
-  Search, AlertTriangle, ChevronUp, ChevronDown,
+  Search, ChevronUp, ChevronDown,
   X, ArrowUpDown, Filter,
 } from "lucide-react";
 
@@ -121,6 +121,31 @@ export default function UsersPage() {
   };
 
   const hasActiveFilters = deptFilter || teamFilter || usageFilter !== "all" || search;
+
+  type ActivityStatus = {
+    label: string;
+    variant: "default" | "success" | "warning" | "error" | "outline" | "info";
+    dotClass: string;
+    sub?: string;
+  };
+
+  const getActivityStatus = (user: UserRow): ActivityStatus => {
+    if (user.total_cost <= 0 && user.total_tokens <= 0) {
+      return { label: "Inactive", variant: "outline", dotClass: "bg-muted-foreground/40" };
+    }
+    if (avgCost > 0 && user.total_cost > avgCost * 2) {
+      return {
+        label: "High Usage",
+        variant: "warning",
+        dotClass: "bg-amber-500",
+        sub: `${(user.total_cost / avgCost).toFixed(1)}x avg`,
+      };
+    }
+    if (avgCost > 0 && user.total_cost < avgCost * 0.5) {
+      return { label: "Rarely Active", variant: "info", dotClass: "bg-sky-500" };
+    }
+    return { label: "Active", variant: "success", dotClass: "bg-emerald-500" };
+  };
 
   const clearFilters = () => {
     setSearch("");
@@ -286,13 +311,14 @@ export default function UsersPage() {
                         </span>
                       </th>
                     ))}
-                    <th className="px-5 py-3 w-10" />
+                    <th className="px-5 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground select-none">
+                      Status
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {paginated.map((user) => {
-                    const isAnomaly = avgCost > 0 && user.total_cost > avgCost * 2;
-                    const isInactive = user.total_cost <= 0 && user.total_tokens <= 0;
+                    const status = getActivityStatus(user);
 
                     const maxCost = Math.max(...sorted.map((u) => u.total_cost), 1);
                     const barPct = maxCost > 0 ? (user.total_cost / maxCost) * 100 : 0;
@@ -302,7 +328,7 @@ export default function UsersPage() {
                     return (
                       <tr
                         key={user.user_id}
-                        className={`border-b border-border last:border-0 hover:bg-muted/50 transition-colors ${isInactive ? "opacity-50" : ""}`}
+                        className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors"
                       >
                         <td className="px-5 py-3">
                           <Link href={`/dashboard/users/${user.user_id}`} className="flex items-center gap-3 hover:text-brand transition-colors">
@@ -357,14 +383,17 @@ export default function UsersPage() {
                           {formatNumber(user.total_requests)}
                         </td>
                         <td className="px-5 py-3">
-                          {isAnomaly && (
-                            <div className="flex items-center gap-1.5">
-                              <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                              <span className="text-[11px] text-amber-600 font-medium whitespace-nowrap">
-                                {(user.total_cost / avgCost).toFixed(1)}x avg
+                          <div className="flex items-center justify-end gap-2">
+                            <Badge variant={status.variant} className="gap-1.5">
+                              <span className={`h-1.5 w-1.5 rounded-full ${status.dotClass}`} />
+                              {status.label}
+                            </Badge>
+                            {status.sub && (
+                              <span className="text-[11px] text-amber-600 font-medium whitespace-nowrap hidden xl:inline">
+                                {status.sub}
                               </span>
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
