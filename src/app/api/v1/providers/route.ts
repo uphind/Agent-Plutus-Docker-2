@@ -97,6 +97,8 @@ export async function POST(request: NextRequest) {
       const hints: Record<string, string> = {
         anthropic:
           "Anthropic requires an Admin API key (starts with sk-ant-admin...), not a regular API key. Generate one at console.anthropic.com → Settings → Admin API Keys.",
+        anthropic_compliance:
+          "Anthropic Compliance requires a Compliance Access Key with read:compliance_activities scope. Generate one at console.anthropic.com → Organization Settings → Data and Privacy → Compliance API. Enterprise plans only.",
         openai:
           "OpenAI requires an Admin API key with organization-level permissions. Generate one at platform.openai.com → Settings → Admin API keys.",
         gemini:

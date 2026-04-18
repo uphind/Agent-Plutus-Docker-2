@@ -29,6 +29,7 @@ const INTERVAL_OPTIONS = [
 
 const PROVIDERS = [
   { value: "anthropic", label: "Anthropic", hint: "Admin API key (sk-ant-admin...)" },
+  { value: "anthropic_compliance", label: "Anthropic Compliance", hint: "Compliance API key — audit-based user activity (no cost data)" },
   { value: "openai", label: "OpenAI", hint: "Admin API key" },
   { value: "gemini", label: "Gemini", hint: "Google AI Studio API key" },
   { value: "cursor", label: "Cursor", hint: "Enterprise Analytics API key" },

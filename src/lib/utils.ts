@@ -29,6 +29,7 @@ export function formatTokens(n: number): string {
 
 export const PROVIDER_LABELS: Record<string, string> = {
   anthropic: "Anthropic",
+  anthropic_compliance: "Anthropic Compliance",
   openai: "OpenAI",
   gemini: "Gemini",
   cursor: "Cursor",
@@ -37,6 +38,7 @@ export const PROVIDER_LABELS: Record<string, string> = {
 
 export const PROVIDER_COLORS: Record<string, string> = {
   anthropic: "#D4A574",
+  anthropic_compliance: "#A67E47",
   openai: "#10A37F",
   gemini: "#8E75B2",
   cursor: "#6366F1",

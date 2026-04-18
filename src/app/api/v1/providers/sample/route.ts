@@ -5,7 +5,7 @@ import { decrypt } from "@/lib/encryption";
 import { getAdapter } from "@/lib/providers";
 import { Provider } from "@/generated/prisma/client";
 
-const VALID_PROVIDERS = new Set(["anthropic", "openai", "cursor", "gemini", "vertex"]);
+const VALID_PROVIDERS = new Set(["anthropic", "anthropic_compliance", "openai", "cursor", "gemini", "vertex"]);
 
 export async function GET(request: NextRequest) {
   const orgId = await getOrgId();

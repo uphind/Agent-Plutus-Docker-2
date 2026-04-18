@@ -84,6 +84,28 @@ export const ANTHROPIC_DEFAULTS: DefaultMapping[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Anthropic Compliance source fields (audit-event based, no token/cost data)
+// ---------------------------------------------------------------------------
+
+export const ANTHROPIC_COMPLIANCE_SOURCE_FIELDS: FieldDef[] = [
+  { key: "id",                   label: "id",                   description: "Activity event identifier" },
+  { key: "created_at",           label: "created_at",           description: "Event timestamp (ISO 8601)" },
+  { key: "type",                 label: "type",                 description: "Activity type (e.g. claude_chat_created)" },
+  { key: "actor.email_address",  label: "actor.email_address",  description: "Email of the actor (user)" },
+  { key: "actor.user_id",        label: "actor.user_id",        description: "Anthropic user identifier" },
+  { key: "actor.api_key_name",   label: "actor.api_key_name",   description: "API key name (for api_actor events)" },
+  { key: "actor.ip_address",     label: "actor.ip_address",     description: "Source IP address" },
+  { key: "actor.user_agent",     label: "actor.user_agent",     description: "User agent string" },
+  { key: "claude_chat_id",       label: "claude_chat_id",       description: "Associated chat identifier" },
+  { key: "claude_project_id",    label: "claude_project_id",    description: "Associated project identifier" },
+  { key: "organization_id",      label: "organization_id",      description: "Anthropic organization ID" },
+];
+
+export const ANTHROPIC_COMPLIANCE_DEFAULTS: DefaultMapping[] = [
+  { sourceField: "actor.email_address", targetField: "userRef" },
+];
+
+// ---------------------------------------------------------------------------
 // OpenAI source fields
 // ---------------------------------------------------------------------------
 
@@ -188,22 +210,24 @@ export const VERTEX_DEFAULTS: DefaultMapping[] = [];
 
 export function getSourceFields(provider: string): FieldDef[] {
   switch (provider) {
-    case "anthropic": return ANTHROPIC_SOURCE_FIELDS;
-    case "openai":    return OPENAI_SOURCE_FIELDS;
-    case "cursor":    return CURSOR_SOURCE_FIELDS;
-    case "gemini":    return GEMINI_SOURCE_FIELDS;
-    case "vertex":    return VERTEX_SOURCE_FIELDS;
-    default:          return [];
+    case "anthropic":            return ANTHROPIC_SOURCE_FIELDS;
+    case "anthropic_compliance": return ANTHROPIC_COMPLIANCE_SOURCE_FIELDS;
+    case "openai":               return OPENAI_SOURCE_FIELDS;
+    case "cursor":               return CURSOR_SOURCE_FIELDS;
+    case "gemini":               return GEMINI_SOURCE_FIELDS;
+    case "vertex":               return VERTEX_SOURCE_FIELDS;
+    default:                     return [];
   }
 }
 
 export function getDefaultMappings(provider: string): DefaultMapping[] {
   switch (provider) {
-    case "anthropic": return ANTHROPIC_DEFAULTS;
-    case "openai":    return OPENAI_DEFAULTS;
-    case "cursor":    return CURSOR_DEFAULTS;
-    case "gemini":    return GEMINI_DEFAULTS;
-    case "vertex":    return VERTEX_DEFAULTS;
-    default:          return [];
+    case "anthropic":            return ANTHROPIC_DEFAULTS;
+    case "anthropic_compliance": return ANTHROPIC_COMPLIANCE_DEFAULTS;
+    case "openai":               return OPENAI_DEFAULTS;
+    case "cursor":               return CURSOR_DEFAULTS;
+    case "gemini":               return GEMINI_DEFAULTS;
+    case "vertex":               return VERTEX_DEFAULTS;
+    default:                     return [];
   }
 }
