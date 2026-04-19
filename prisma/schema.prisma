@@ -136,6 +136,7 @@ model OrgUser {
 enum Provider {
   anthropic
   anthropic_compliance
+  anthropic_analytics
   openai
   gemini
   cursor

@@ -127,7 +127,7 @@ export function AiChatbot() {
                 </p>
                 {!hasConfig ? (
                   <Link
-                    href="/dashboard/settings"
+                    href="/dashboard/settings?tab=ai-assistant"
                     onClick={() => setOpen(false)}
                     className="inline-flex items-center gap-1.5 text-xs text-brand hover:underline"
                   >

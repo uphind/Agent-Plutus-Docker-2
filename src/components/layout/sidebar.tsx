@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Users,
-  Plug,
   Building2,
   Settings,
   Boxes,
@@ -72,7 +71,6 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: "CONFIGURATION",
     items: [
-      { name: "Providers", href: "/dashboard/providers", icon: Plug },
       { name: "Provider Health", href: "/dashboard/provider-health", icon: ShieldCheck },
       { name: "Settings", href: "/dashboard/settings", icon: Settings },
     ],

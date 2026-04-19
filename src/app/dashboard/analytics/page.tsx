@@ -13,6 +13,8 @@ import { formatCurrency, formatTokens, formatNumber, formatModelName, isOverageM
 import { TOOLTIPS } from "@/lib/tooltip-content";
 import { Zap, DollarSign, Hash, Clock, PieChart as PieChartIcon, TableIcon } from "lucide-react";
 import { DistributionPie } from "@/components/charts/distribution-pie";
+import { ChartTypeToggle, type ChartType } from "@/components/charts/chart-type-toggle";
+import { useViewPreference } from "@/lib/use-view-preference";
 import { ProviderBar } from "@/components/analytics/provider-bar";
 import { UsageHeatmap } from "@/components/charts/usage-heatmap";
 import {
@@ -73,6 +75,14 @@ function getWeekNumber(d: Date): number {
   return Math.ceil(((d.getTime() - onejan.getTime()) / 86400000 + onejan.getDay() + 1) / 7);
 }
 
+// Hoisted out of the component so its identity is stable across renders —
+// otherwise the React Compiler bails on memoizing the useMemos below that
+// reference it (`react-hooks/preserve-manual-memoization`).
+function modelLabel(provider: string, model: string): string {
+  const pLabel = PROVIDER_LABELS[provider] ?? provider;
+  return `${formatModelName(model)} (${pLabel})`;
+}
+
 export default function AnalyticsPage() {
   const [data, setData] = useState<TrendsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -85,8 +95,12 @@ export default function AnalyticsPage() {
   const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set());
   const [providerData, setProviderData] = useState<Array<{ provider: string; totalCost: number; totalTokens: number; requestsCount: number }>>([]);
   const [modelSummary, setModelSummary] = useState<Array<{ model: string; provider: string; totalCost: number; totalTokens: number; requestsCount: number }>>([]);
-  const [providerView, setProviderView] = useState<"table" | "pie">("table");
-  const [modelView, setModelView] = useState<"table" | "pie">("table");
+  const [providerView, setProviderView] = useViewPreference<"table" | "pie">("analytics.providerView", "table");
+  const [modelView, setModelView] = useViewPreference<"table" | "pie">("analytics.modelView", "table");
+  const [usageChartType, setUsageChartType] = useViewPreference<ChartType>("analytics.usageChart", "pie");
+  const [cumulativeChartType, setCumulativeChartType] = useViewPreference<ChartType>("analytics.cumulativeChart", "pie");
+  const [shareChartType, setShareChartType] = useViewPreference<ChartType>("analytics.shareChart", "pie");
+  const [efficiencyChartType, setEfficiencyChartType] = useViewPreference<ChartType>("analytics.efficiencyChart", "pie");
 
   useEffect(() => {
     setLoading(true);
@@ -189,10 +203,71 @@ export default function AnalyticsPage() {
       .map((m) => modelLabel(m.provider, m.model));
   }, [data, selectedModels]);
 
-  function modelLabel(provider: string, model: string): string {
-    const pLabel = PROVIDER_LABELS[provider] ?? provider;
-    return `${formatModelName(model)} (${pLabel})`;
-  }
+  // Pie data: aggregate `chartData` (excluding period + AVG_KEY) into per-model totals
+  const pieDataForChart = useMemo(() => {
+    if (!data) return [];
+    const totals: Record<string, number> = {};
+    for (const row of chartData) {
+      for (const label of activeModelLabels) {
+        totals[label] = (totals[label] ?? 0) + Number(row[label] ?? 0);
+      }
+    }
+    return activeModelLabels
+      .map((label) => {
+        const entry = data.modelTotals.find((m) => modelLabel(m.provider, m.model) === label);
+        const color = entry ? modelColorMap.get(`${entry.provider}|${entry.model}`) : undefined;
+        return { name: label, value: Math.round((totals[label] ?? 0) * 100) / 100, color };
+      })
+      .filter((d) => d.value > 0);
+  }, [data, chartData, activeModelLabels, modelColorMap]);
+
+  // Pie data for share: average each model's share % across periods
+  const pieDataForShare = useMemo(() => {
+    if (!data) return [];
+    const totals: Record<string, number> = {};
+    const counts: Record<string, number> = {};
+    for (const row of shareData) {
+      for (const label of activeModelLabels) {
+        const v = Number(row[label] ?? 0);
+        if (v > 0) {
+          totals[label] = (totals[label] ?? 0) + v;
+          counts[label] = (counts[label] ?? 0) + 1;
+        }
+      }
+    }
+    return activeModelLabels
+      .map((label) => {
+        const entry = data.modelTotals.find((m) => modelLabel(m.provider, m.model) === label);
+        const color = entry ? modelColorMap.get(`${entry.provider}|${entry.model}`) : undefined;
+        const avg = counts[label] ? totals[label] / counts[label] : 0;
+        return { name: label, value: Math.round(avg * 10) / 10, color };
+      })
+      .filter((d) => d.value > 0);
+  }, [data, shareData, activeModelLabels, modelColorMap]);
+
+  // Pie data for efficiency: avg of avg cost per request, per model
+  const pieDataForEfficiency = useMemo(() => {
+    if (!data) return [];
+    const totals: Record<string, number> = {};
+    const counts: Record<string, number> = {};
+    for (const row of efficiencyData) {
+      for (const label of activeModelLabels) {
+        const v = Number(row[label] ?? 0);
+        if (v > 0) {
+          totals[label] = (totals[label] ?? 0) + v;
+          counts[label] = (counts[label] ?? 0) + 1;
+        }
+      }
+    }
+    return activeModelLabels
+      .map((label) => {
+        const entry = data.modelTotals.find((m) => modelLabel(m.provider, m.model) === label);
+        const color = entry ? modelColorMap.get(`${entry.provider}|${entry.model}`) : undefined;
+        const avg = counts[label] ? totals[label] / counts[label] : 0;
+        return { name: label, value: Math.round(avg * 10000) / 10000, color };
+      })
+      .filter((d) => d.value > 0);
+  }, [data, efficiencyData, activeModelLabels, modelColorMap]);
 
   function toggleModel(key: string) {
     setSelectedModels((prev) => {
@@ -479,54 +554,145 @@ export default function AnalyticsPage() {
               </div>
 
               <Card>
-                <CardHeader><CardTitle>{metricLabel} by Model Over Time</CardTitle></CardHeader>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>{metricLabel} by Model{usageChartType === "pie" ? "" : " Over Time"}</CardTitle>
+                    <ChartTypeToggle value={usageChartType} onChange={setUsageChartType} />
+                  </div>
+                </CardHeader>
                 <CardContent>
                   {chartData.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-12">No data for this period</p>
+                  ) : usageChartType === "pie" ? (
+                    <DistributionPie
+                      data={pieDataForChart}
+                      height={400}
+                      formatValue={(v) => metricFormatter(v)}
+                    />
                   ) : (
                     <ResponsiveContainer width="100%" height={400}>
-                      <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                        <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#64748b" }} />
-                        <YAxis tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v: number) => metricFormatter(v)} />
-                        <Tooltip {...tooltipStyle} formatter={metricFormatter} />
-                        <Legend wrapperStyle={{ fontSize: "11px" }} />
-                        {activeModelLabels.map((label) => {
-                          const entry = data.modelTotals.find((m) => modelLabel(m.provider, m.model) === label);
-                          const color = entry ? modelColorMap.get(`${entry.provider}|${entry.model}`) : "#6b7280";
-                          return (
-                            <Line key={label} type="monotone" dataKey={label} stroke={color} strokeWidth={2} dot={{ r: 2.5 }} activeDot={{ r: 4 }} />
-                          );
-                        })}
-                        <Line type="monotone" dataKey={AVG_KEY} stroke="#94a3b8" strokeWidth={2} strokeDasharray="6 3" dot={false} />
-                      </LineChart>
+                      {usageChartType === "line" ? (
+                        <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                          <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#64748b" }} />
+                          <YAxis tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v: number) => metricFormatter(v)} />
+                          <Tooltip {...tooltipStyle} formatter={metricFormatter} />
+                          <Legend wrapperStyle={{ fontSize: "11px" }} />
+                          {activeModelLabels.map((label) => {
+                            const entry = data.modelTotals.find((m) => modelLabel(m.provider, m.model) === label);
+                            const color = entry ? modelColorMap.get(`${entry.provider}|${entry.model}`) : "#6b7280";
+                            return (
+                              <Line key={label} type="monotone" dataKey={label} stroke={color} strokeWidth={2} dot={{ r: 2.5 }} activeDot={{ r: 4 }} />
+                            );
+                          })}
+                          <Line type="monotone" dataKey={AVG_KEY} stroke="#94a3b8" strokeWidth={2} strokeDasharray="6 3" dot={false} />
+                        </LineChart>
+                      ) : usageChartType === "area" ? (
+                        <AreaChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                          <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#64748b" }} />
+                          <YAxis tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v: number) => metricFormatter(v)} />
+                          <Tooltip {...tooltipStyle} formatter={metricFormatter} />
+                          <Legend wrapperStyle={{ fontSize: "11px" }} />
+                          {activeModelLabels.map((label) => {
+                            const entry = data.modelTotals.find((m) => modelLabel(m.provider, m.model) === label);
+                            const color = entry ? modelColorMap.get(`${entry.provider}|${entry.model}`) : "#6b7280";
+                            return (
+                              <Area key={label} type="monotone" dataKey={label} stroke={color} fill={color} fillOpacity={0.25} />
+                            );
+                          })}
+                        </AreaChart>
+                      ) : (
+                        <BarChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                          <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#64748b" }} />
+                          <YAxis tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v: number) => metricFormatter(v)} />
+                          <Tooltip {...tooltipStyle} formatter={metricFormatter} />
+                          <Legend wrapperStyle={{ fontSize: "11px" }} />
+                          {activeModelLabels.map((label) => {
+                            const entry = data.modelTotals.find((m) => modelLabel(m.provider, m.model) === label);
+                            const color = entry ? modelColorMap.get(`${entry.provider}|${entry.model}`) : "#6b7280";
+                            return (
+                              <Bar key={label} dataKey={label} stackId="a" fill={color} />
+                            );
+                          })}
+                        </BarChart>
+                      )}
                     </ResponsiveContainer>
                   )}
                 </CardContent>
               </Card>
 
-              {/* Stacked area variant */}
+              {/* Cumulative variant */}
               {chartData.length > 0 && (
                 <Card className="mt-6">
-                  <CardHeader><CardTitle>Cumulative {metricLabel} (Stacked)</CardTitle></CardHeader>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle>
+                        {cumulativeChartType === "pie"
+                          ? `Total ${metricLabel} by Model`
+                          : `Cumulative ${metricLabel} (Stacked)`}
+                      </CardTitle>
+                      <ChartTypeToggle value={cumulativeChartType} onChange={setCumulativeChartType} />
+                    </div>
+                  </CardHeader>
                   <CardContent>
-                    <ResponsiveContainer width="100%" height={350}>
-                      <AreaChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                        <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#64748b" }} />
-                        <YAxis tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v: number) => metricFormatter(v)} />
-                        <Tooltip {...tooltipStyle} formatter={metricFormatter} />
-                        <Legend wrapperStyle={{ fontSize: "11px" }} />
-                        {activeModelLabels.map((label) => {
-                          const entry = data.modelTotals.find((m) => modelLabel(m.provider, m.model) === label);
-                          const color = entry ? modelColorMap.get(`${entry.provider}|${entry.model}`) : "#6b7280";
-                          return (
-                            <Area key={label} type="monotone" dataKey={label} stackId="1" stroke={color} fill={color} fillOpacity={0.3} />
-                          );
-                        })}
-                        <Line type="monotone" dataKey={AVG_KEY} stroke="#94a3b8" strokeWidth={2} strokeDasharray="6 3" dot={false} />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    {cumulativeChartType === "pie" ? (
+                      <DistributionPie
+                        data={pieDataForChart}
+                        height={350}
+                        formatValue={(v) => metricFormatter(v)}
+                      />
+                    ) : (
+                      <ResponsiveContainer width="100%" height={350}>
+                        {cumulativeChartType === "line" ? (
+                          <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                            <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#64748b" }} />
+                            <YAxis tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v: number) => metricFormatter(v)} />
+                            <Tooltip {...tooltipStyle} formatter={metricFormatter} />
+                            <Legend wrapperStyle={{ fontSize: "11px" }} />
+                            {activeModelLabels.map((label) => {
+                              const entry = data.modelTotals.find((m) => modelLabel(m.provider, m.model) === label);
+                              const color = entry ? modelColorMap.get(`${entry.provider}|${entry.model}`) : "#6b7280";
+                              return (
+                                <Line key={label} type="monotone" dataKey={label} stroke={color} strokeWidth={2} dot={{ r: 2 }} />
+                              );
+                            })}
+                          </LineChart>
+                        ) : cumulativeChartType === "area" ? (
+                          <AreaChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                            <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#64748b" }} />
+                            <YAxis tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v: number) => metricFormatter(v)} />
+                            <Tooltip {...tooltipStyle} formatter={metricFormatter} />
+                            <Legend wrapperStyle={{ fontSize: "11px" }} />
+                            {activeModelLabels.map((label) => {
+                              const entry = data.modelTotals.find((m) => modelLabel(m.provider, m.model) === label);
+                              const color = entry ? modelColorMap.get(`${entry.provider}|${entry.model}`) : "#6b7280";
+                              return (
+                                <Area key={label} type="monotone" dataKey={label} stackId="1" stroke={color} fill={color} fillOpacity={0.3} />
+                              );
+                            })}
+                          </AreaChart>
+                        ) : (
+                          <BarChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                            <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#64748b" }} />
+                            <YAxis tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v: number) => metricFormatter(v)} />
+                            <Tooltip {...tooltipStyle} formatter={metricFormatter} />
+                            <Legend wrapperStyle={{ fontSize: "11px" }} />
+                            {activeModelLabels.map((label) => {
+                              const entry = data.modelTotals.find((m) => modelLabel(m.provider, m.model) === label);
+                              const color = entry ? modelColorMap.get(`${entry.provider}|${entry.model}`) : "#6b7280";
+                              return (
+                                <Bar key={label} dataKey={label} stackId="1" fill={color} />
+                              );
+                            })}
+                          </BarChart>
+                        )}
+                      </ResponsiveContainer>
+                    )}
                   </CardContent>
                 </Card>
               )}
@@ -536,26 +702,73 @@ export default function AnalyticsPage() {
           {/* ═══════════════ Model Share ═══════════════ */}
           {tab === "share" && (
             <Card>
-              <CardHeader><CardTitle tooltip={TOOLTIPS.modelShare}>Model Cost Share Over Time (%)</CardTitle></CardHeader>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle tooltip={TOOLTIPS.modelShare}>
+                    {shareChartType === "pie"
+                      ? "Model Cost Share (Average %)"
+                      : "Model Cost Share Over Time (%)"}
+                  </CardTitle>
+                  <ChartTypeToggle value={shareChartType} onChange={setShareChartType} />
+                </div>
+              </CardHeader>
               <CardContent>
                 {shareData.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-12">No data</p>
+                ) : shareChartType === "pie" ? (
+                  <DistributionPie
+                    data={pieDataForShare}
+                    height={400}
+                    formatValue={(v) => `${Number(v).toFixed(1)}%`}
+                  />
                 ) : (
                   <ResponsiveContainer width="100%" height={400}>
-                    <AreaChart data={shareData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                      <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#64748b" }} />
-                      <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v: number) => `${v}%`} />
-                      <Tooltip {...tooltipStyle} formatter={pctFormatter} />
-                      <Legend wrapperStyle={{ fontSize: "11px" }} />
-                      {activeModelLabels.map((label) => {
-                        const entry = data.modelTotals.find((m) => modelLabel(m.provider, m.model) === label);
-                        const color = entry ? modelColorMap.get(`${entry.provider}|${entry.model}`) : "#6b7280";
-                        return (
-                          <Area key={label} type="monotone" dataKey={label} stackId="1" stroke={color} fill={color} fillOpacity={0.6} />
-                        );
-                      })}
-                    </AreaChart>
+                    {shareChartType === "line" ? (
+                      <LineChart data={shareData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#64748b" }} />
+                        <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v: number) => `${v}%`} />
+                        <Tooltip {...tooltipStyle} formatter={pctFormatter} />
+                        <Legend wrapperStyle={{ fontSize: "11px" }} />
+                        {activeModelLabels.map((label) => {
+                          const entry = data.modelTotals.find((m) => modelLabel(m.provider, m.model) === label);
+                          const color = entry ? modelColorMap.get(`${entry.provider}|${entry.model}`) : "#6b7280";
+                          return (
+                            <Line key={label} type="monotone" dataKey={label} stroke={color} strokeWidth={2} dot={{ r: 2 }} />
+                          );
+                        })}
+                      </LineChart>
+                    ) : shareChartType === "area" ? (
+                      <AreaChart data={shareData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#64748b" }} />
+                        <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v: number) => `${v}%`} />
+                        <Tooltip {...tooltipStyle} formatter={pctFormatter} />
+                        <Legend wrapperStyle={{ fontSize: "11px" }} />
+                        {activeModelLabels.map((label) => {
+                          const entry = data.modelTotals.find((m) => modelLabel(m.provider, m.model) === label);
+                          const color = entry ? modelColorMap.get(`${entry.provider}|${entry.model}`) : "#6b7280";
+                          return (
+                            <Area key={label} type="monotone" dataKey={label} stackId="1" stroke={color} fill={color} fillOpacity={0.6} />
+                          );
+                        })}
+                      </AreaChart>
+                    ) : (
+                      <BarChart data={shareData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#64748b" }} />
+                        <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v: number) => `${v}%`} />
+                        <Tooltip {...tooltipStyle} formatter={pctFormatter} />
+                        <Legend wrapperStyle={{ fontSize: "11px" }} />
+                        {activeModelLabels.map((label) => {
+                          const entry = data.modelTotals.find((m) => modelLabel(m.provider, m.model) === label);
+                          const color = entry ? modelColorMap.get(`${entry.provider}|${entry.model}`) : "#6b7280";
+                          return (
+                            <Bar key={label} dataKey={label} stackId="1" fill={color} />
+                          );
+                        })}
+                      </BarChart>
+                    )}
                   </ResponsiveContainer>
                 )}
               </CardContent>
@@ -565,26 +778,73 @@ export default function AnalyticsPage() {
           {/* ═══════════════ Cost Efficiency ═══════════════ */}
           {tab === "efficiency" && (
             <Card>
-              <CardHeader><CardTitle tooltip={TOOLTIPS.costEfficiency}>Average Cost per Request Over Time</CardTitle></CardHeader>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle tooltip={TOOLTIPS.costEfficiency}>
+                    {efficiencyChartType === "pie"
+                      ? "Average Cost per Request by Model"
+                      : "Average Cost per Request Over Time"}
+                  </CardTitle>
+                  <ChartTypeToggle value={efficiencyChartType} onChange={setEfficiencyChartType} />
+                </div>
+              </CardHeader>
               <CardContent>
                 {efficiencyData.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-12">No data</p>
+                ) : efficiencyChartType === "pie" ? (
+                  <DistributionPie
+                    data={pieDataForEfficiency}
+                    height={400}
+                    formatValue={(v) => `$${Number(v).toFixed(4)}`}
+                  />
                 ) : (
                   <ResponsiveContainer width="100%" height={400}>
-                    <LineChart data={efficiencyData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                      <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#64748b" }} />
-                      <YAxis tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v: number) => `$${v.toFixed(4)}`} />
-                      <Tooltip {...tooltipStyle} formatter={costReqFormatter} />
-                      <Legend wrapperStyle={{ fontSize: "11px" }} />
-                      {activeModelLabels.map((label) => {
-                        const entry = data.modelTotals.find((m) => modelLabel(m.provider, m.model) === label);
-                        const color = entry ? modelColorMap.get(`${entry.provider}|${entry.model}`) : "#6b7280";
-                        return (
-                          <Line key={label} type="monotone" dataKey={label} stroke={color} strokeWidth={2} dot={{ r: 2 }} />
-                        );
-                      })}
-                    </LineChart>
+                    {efficiencyChartType === "line" ? (
+                      <LineChart data={efficiencyData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#64748b" }} />
+                        <YAxis tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v: number) => `$${v.toFixed(4)}`} />
+                        <Tooltip {...tooltipStyle} formatter={costReqFormatter} />
+                        <Legend wrapperStyle={{ fontSize: "11px" }} />
+                        {activeModelLabels.map((label) => {
+                          const entry = data.modelTotals.find((m) => modelLabel(m.provider, m.model) === label);
+                          const color = entry ? modelColorMap.get(`${entry.provider}|${entry.model}`) : "#6b7280";
+                          return (
+                            <Line key={label} type="monotone" dataKey={label} stroke={color} strokeWidth={2} dot={{ r: 2 }} />
+                          );
+                        })}
+                      </LineChart>
+                    ) : efficiencyChartType === "area" ? (
+                      <AreaChart data={efficiencyData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#64748b" }} />
+                        <YAxis tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v: number) => `$${v.toFixed(4)}`} />
+                        <Tooltip {...tooltipStyle} formatter={costReqFormatter} />
+                        <Legend wrapperStyle={{ fontSize: "11px" }} />
+                        {activeModelLabels.map((label) => {
+                          const entry = data.modelTotals.find((m) => modelLabel(m.provider, m.model) === label);
+                          const color = entry ? modelColorMap.get(`${entry.provider}|${entry.model}`) : "#6b7280";
+                          return (
+                            <Area key={label} type="monotone" dataKey={label} stroke={color} fill={color} fillOpacity={0.25} />
+                          );
+                        })}
+                      </AreaChart>
+                    ) : (
+                      <BarChart data={efficiencyData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#64748b" }} />
+                        <YAxis tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v: number) => `$${v.toFixed(4)}`} />
+                        <Tooltip {...tooltipStyle} formatter={costReqFormatter} />
+                        <Legend wrapperStyle={{ fontSize: "11px" }} />
+                        {activeModelLabels.map((label) => {
+                          const entry = data.modelTotals.find((m) => modelLabel(m.provider, m.model) === label);
+                          const color = entry ? modelColorMap.get(`${entry.provider}|${entry.model}`) : "#6b7280";
+                          return (
+                            <Bar key={label} dataKey={label} fill={color} />
+                          );
+                        })}
+                      </BarChart>
+                    )}
                   </ResponsiveContainer>
                 )}
               </CardContent>

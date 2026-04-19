@@ -389,7 +389,7 @@ export async function GET() {
         title: `${dominantPct.toFixed(0)}% of spend concentrated on ${dominant.provider}`,
         description: `Diversifying across providers can reduce vendor lock-in risk and leverage competitive pricing. Consider routing non-critical workloads to alternative providers.`,
         affectedEntities: [{ type: "provider", id: dominant.provider, name: dominant.provider }],
-        linkTo: "/dashboard/providers",
+        linkTo: "/dashboard/settings",
       });
     }
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Header } from "@/components/layout/header";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,10 +11,14 @@ import { api } from "@/lib/dashboard-api";
 import { PROVIDER_LABELS } from "@/lib/utils";
 import {
   Plug, RefreshCw, Trash2, CheckCircle, XCircle, Key, Save, X,
-  Clock, AlertTriangle, FolderSync, GitCompareArrows,
+  Clock, AlertTriangle, FolderSync, GitCompareArrows, Radar,
+  TableIcon, LayoutGrid,
 } from "lucide-react";
 import Link from "next/link";
 import { ProviderFieldMappingModal } from "@/components/provider-field-mapping-modal";
+import { useViewPreference } from "@/lib/use-view-preference";
+import { useRequestedIntegrations } from "@/lib/requested-integrations";
+import { Sparkles } from "lucide-react";
 
 const DIR_DISCLAIMER_DISMISSED_KEY = "provider-dir-disclaimer-dismissed";
 
@@ -30,6 +34,7 @@ const INTERVAL_OPTIONS = [
 const PROVIDERS = [
   { value: "anthropic", label: "Anthropic", hint: "Admin API key (sk-ant-admin...)" },
   { value: "anthropic_compliance", label: "Anthropic Compliance", hint: "Compliance API key — audit-based user activity (no cost data)" },
+  { value: "anthropic_analytics", label: "Anthropic Analytics", hint: "Enterprise Analytics API key (read:analytics) — per-user engagement, no cost data" },
   { value: "openai", label: "OpenAI", hint: "Admin API key" },
   { value: "gemini", label: "Gemini", hint: "Google AI Studio API key" },
   { value: "cursor", label: "Cursor", hint: "Enterprise Analytics API key" },
@@ -44,7 +49,11 @@ interface ProviderCred {
   lastSyncAt: string | null;
 }
 
-export default function ProvidersPage() {
+interface ProvidersContentProps {
+  showHeader?: boolean;
+}
+
+export function ProvidersContent({ showHeader = true }: ProvidersContentProps) {
   const [credentials, setCredentials] = useState<ProviderCred[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState<string | null>(null);
@@ -63,6 +72,7 @@ export default function ProvidersPage() {
   const [directoryConfigured, setDirectoryConfigured] = useState<boolean | null>(null);
   const [disclaimerDismissed, setDisclaimerDismissed] = useState(false);
   const [mappingProvider, setMappingProvider] = useState<string | null>(null);
+  const [layout, setLayout] = useViewPreference<"table" | "cards">("providers.layout", "table");
 
   const showDisclaimer = directoryConfigured === false && !disclaimerDismissed;
   const disableConfigButtons = showDisclaimer;
@@ -161,10 +171,29 @@ export default function ProvidersPage() {
 
   return (
     <div className="space-y-6">
-      <Header
-        title="Providers"
-        description="Configure API keys for your AI platforms"
-      />
+      {showHeader ? (
+        <Header
+          title="Providers"
+          description="Configure API keys for your AI platforms"
+          action={
+            <Link href="/dashboard/providers/discovery">
+              <Button variant="secondary" size="sm">
+                <Radar className="h-3.5 w-3.5" />
+                Discovery
+              </Button>
+            </Link>
+          }
+        />
+      ) : (
+        <div className="flex items-center justify-end">
+          <Link href="/dashboard/providers/discovery">
+            <Button variant="secondary" size="sm">
+              <Radar className="h-3.5 w-3.5" />
+              Discovery
+            </Button>
+          </Link>
+        </div>
+      )}
 
       {error && (
         <Card className="p-4 border-destructive/50 bg-red-50">
@@ -238,15 +267,176 @@ export default function ProvidersPage() {
         </div>
       </Card>
 
-      {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[...Array(6)].map((_, i) => (
-            <Card key={i} className="p-6 animate-pulse">
-              <div className="h-5 bg-muted rounded w-24 mb-4" />
-              <div className="h-4 bg-muted rounded w-40" />
-            </Card>
-          ))}
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">Configured providers</h3>
+        <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
+          <button
+            type="button"
+            onClick={() => setLayout("table")}
+            title="Table view"
+            aria-label="Table view"
+            aria-pressed={layout === "table"}
+            className={`p-1.5 rounded-md transition-colors ${
+              layout === "table" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <TableIcon className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setLayout("cards")}
+            title="Card view"
+            aria-label="Card view"
+            aria-pressed={layout === "cards"}
+            className={`p-1.5 rounded-md transition-colors ${
+              layout === "cards" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+          </button>
         </div>
+      </div>
+
+      {loading ? (
+        layout === "table" ? (
+          <Card className="p-0">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="border-b border-border last:border-0 px-5 py-3 animate-pulse">
+                <div className="h-4 bg-muted rounded w-40" />
+              </div>
+            ))}
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[...Array(6)].map((_, i) => (
+              <Card key={i} className="p-6 animate-pulse">
+                <div className="h-5 bg-muted rounded w-24 mb-4" />
+                <div className="h-4 bg-muted rounded w-40" />
+              </Card>
+            ))}
+          </div>
+        )
+      ) : layout === "table" ? (
+        <Card className="p-0 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Provider</th>
+                <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
+                <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Label</th>
+                <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Last sync</th>
+                <th className="px-5 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {PROVIDERS.map((p) => {
+                const cred = credentials.find((c) => c.provider === p.value);
+                const isConnected = !!cred?.isActive;
+                const isConfiguring = configuring === p.value;
+                return (
+                  <Fragment key={p.value}>
+                    <tr className={`border-b border-border last:border-0 ${disableConfigButtons && !isConnected ? "opacity-60" : ""}`}>
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="rounded-md bg-muted p-1.5">
+                            <Plug className="h-3.5 w-3.5 text-muted-foreground" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{p.label}</p>
+                            <p className="text-[11px] text-muted-foreground truncate">{p.hint}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-5 py-3">
+                        {isConnected ? (
+                          <Badge variant="success">
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                            Connected
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline">
+                            <XCircle className="h-3 w-3 mr-1" />
+                            Not configured
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-xs text-muted-foreground truncate">
+                        {cred?.label ?? "—"}
+                      </td>
+                      <td className="px-5 py-3 text-xs text-muted-foreground">
+                        {cred?.lastSyncAt ? new Date(cred.lastSyncAt).toLocaleString() : "—"}
+                      </td>
+                      <td className="px-5 py-3">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {isConnected ? (
+                            <>
+                              <Button variant="ghost" size="sm" onClick={() => handleSync(p.value)} disabled={syncing === p.value} title="Sync now">
+                                <RefreshCw className={`h-3.5 w-3.5 ${syncing === p.value ? "animate-spin" : ""}`} />
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => setMappingProvider(p.value)} title="Map fields">
+                                <GitCompareArrows className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => handleConfigure(p.value)} title="Update key">
+                                <Key className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => handleDelete(p.value)} title="Remove">
+                                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                              </Button>
+                            </>
+                          ) : (
+                            <Button size="sm" onClick={() => handleConfigure(p.value)} disabled={disableConfigButtons}>
+                              <Key className="h-3.5 w-3.5" />
+                              Configure
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {isConfiguring && (
+                      <tr className="border-b border-border last:border-0 bg-muted/20">
+                        <td colSpan={5} className="px-5 py-4">
+                          <div className="space-y-3">
+                            <Input
+                              placeholder={p.hint}
+                              value={keyInput}
+                              onChange={(e) => setKeyInput(e.target.value)}
+                              type="password"
+                              autoFocus
+                            />
+                            <Input
+                              placeholder="Label (optional)"
+                              value={labelInput}
+                              onChange={(e) => setLabelInput(e.target.value)}
+                            />
+                            {cardError && (
+                              <div className="rounded-md bg-red-50 border border-red-200 p-3">
+                                {cardError.split("\n").map((line, i) => (
+                                  <p key={i} className={`text-xs ${i === 0 ? "text-destructive font-medium" : "text-red-700 mt-1"}`}>
+                                    {line}
+                                  </p>
+                                ))}
+                              </div>
+                            )}
+                            <div className="flex gap-2">
+                              <Button size="sm" onClick={() => handleSave(p.value)} disabled={!keyInput.trim() || saving}>
+                                <Save className="h-3.5 w-3.5" />
+                                {saving ? "Saving..." : "Save"}
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => setConfiguring(null)}>
+                                <X className="h-3.5 w-3.5" />
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {PROVIDERS.map((p) => {
@@ -389,6 +579,8 @@ export default function ProvidersPage() {
         </div>
       )}
 
+      <RequestedIntegrationsSection />
+
       <ProviderFieldMappingModal
         open={!!mappingProvider}
         onClose={() => setMappingProvider(null)}
@@ -396,4 +588,70 @@ export default function ProvidersPage() {
       />
     </div>
   );
+}
+
+function RequestedIntegrationsSection() {
+  const { items, remove } = useRequestedIntegrations();
+  if (items.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between px-1">
+        <h3 className="text-sm font-semibold flex items-center gap-2">
+          <Sparkles className="h-3.5 w-3.5 text-sky-500" />
+          Requested integrations
+          <span className="text-xs text-muted-foreground font-normal">
+            providers you asked us to add — not yet syncable
+          </span>
+        </h3>
+      </div>
+      <Card className="p-0 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border bg-muted/30">
+              <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Provider</th>
+              <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Discovered via</th>
+              <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Key hint</th>
+              <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Requested</th>
+              <th className="px-5 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((it) => (
+              <tr key={it.provider} className="border-b border-border last:border-0">
+                <td className="px-5 py-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">{it.providerLabel}</span>
+                    <Badge variant="info">Pending integration</Badge>
+                  </div>
+                </td>
+                <td className="px-5 py-3 text-xs text-muted-foreground">
+                  {it.apiName ? (
+                    <span>
+                      {it.apiName}
+                      {it.endpointName ? ` · ${it.endpointName}` : ""}
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+                <td className="px-5 py-3 text-xs font-mono text-muted-foreground">{it.keyHint ?? "—"}</td>
+                <td className="px-5 py-3 text-xs text-muted-foreground">
+                  {new Date(it.requestedAt).toLocaleString()}
+                </td>
+                <td className="px-5 py-3 text-right">
+                  <Button size="sm" variant="ghost" onClick={() => remove(it.provider)} title="Remove from request list">
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+    </div>
+  );
+}
+
+export default function ProvidersPage() {
+  return <ProvidersContent showHeader />;
 }

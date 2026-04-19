@@ -204,6 +204,7 @@ Supported providers:
 | Provider | Key type | What's synced |
 |----------|----------|---------------|
 | Anthropic | Admin API key (`sk-ant-admin...`) | Tokens, cost, by model/workspace |
+| Anthropic Analytics | Enterprise Analytics API key (`read:analytics`) | Per-user engagement: chat, Claude Code, Office Agent, Cowork (no cost data, 3-day delay) |
 | OpenAI | Admin API key | Tokens, cost, by model/user/project |
 | Gemini | Google AI Studio API key | Tokens, cost, by model |
 | Cursor | Enterprise Analytics API key | Agent edits, tabs, DAU, model usage |

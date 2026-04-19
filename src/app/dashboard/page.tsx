@@ -144,7 +144,7 @@ export default function OverviewPage() {
           </p>
           <div className="space-y-4 text-left">
             {[
-              { label: "Connect an AI provider", href: "/dashboard/providers", done: false },
+              { label: "Connect an AI provider", href: "/dashboard/settings", done: false },
               { label: "Push your employee directory", href: "/dashboard/settings", done: false },
               { label: "Set department budgets", href: "/dashboard/departments", done: departments.length > 0 },
             ].map((step) => (
@@ -233,7 +233,7 @@ export default function OverviewPage() {
                     data={data.byProvider.map((p) => ({
                       name: PROVIDER_LABELS[p.provider] ?? p.provider,
                       value: Number(p._sum.costUsd ?? 0),
-                      color: ({ anthropic: "#D4A574", anthropic_compliance: "#A67E47", openai: "#10A37F", gemini: "#8E75B2", cursor: "#6366F1", vertex: "#4285F4" } as Record<string, string>)[p.provider],
+                      color: ({ anthropic: "#D4A574", anthropic_compliance: "#A67E47", anthropic_analytics: "#C68A4F", openai: "#10A37F", gemini: "#8E75B2", cursor: "#6366F1", vertex: "#4285F4" } as Record<string, string>)[p.provider],
                     }))}
                   />
                 )}

@@ -109,7 +109,7 @@ export function TopBar({ user }: TopBarProps) {
       const hasProviders = (settingsData.providerCount ?? 0) > 0;
       const steps: SetupStep[] = [
         { label: "Push your employee directory", href: "/dashboard/settings?tab=directory-sync", done: hasDirectory },
-        { label: "Connect an AI provider", href: "/dashboard/providers", done: hasProviders },
+        { label: "Connect an AI provider", href: "/dashboard/settings", done: hasProviders },
         { label: "Set department budgets", href: "/dashboard/departments", done: deps.length > 0 },
       ];
       const pending = steps.filter((s) => !s.done);

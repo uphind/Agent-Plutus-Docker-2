@@ -90,21 +90,88 @@ export const ANTHROPIC_DEFAULTS: DefaultMapping[] = [
 // ---------------------------------------------------------------------------
 
 export const ANTHROPIC_COMPLIANCE_SOURCE_FIELDS: FieldDef[] = [
-  { key: "id",                   label: "id",                   description: "Activity event identifier" },
-  { key: "created_at",           label: "created_at",           description: "Event timestamp (ISO 8601)" },
-  { key: "type",                 label: "type",                 description: "Activity type (e.g. claude_chat_created)" },
-  { key: "actor.email_address",  label: "actor.email_address",  description: "Email of the actor (user)" },
-  { key: "actor.user_id",        label: "actor.user_id",        description: "Anthropic user identifier" },
-  { key: "actor.api_key_name",   label: "actor.api_key_name",   description: "API key name (for api_actor events)" },
-  { key: "actor.ip_address",     label: "actor.ip_address",     description: "Source IP address" },
-  { key: "actor.user_agent",     label: "actor.user_agent",     description: "User agent string" },
-  { key: "claude_chat_id",       label: "claude_chat_id",       description: "Associated chat identifier" },
-  { key: "claude_project_id",    label: "claude_project_id",    description: "Associated project identifier" },
-  { key: "organization_id",      label: "organization_id",      description: "Anthropic organization ID" },
+  { key: "id",                                    label: "id",                                    description: "Activity event identifier" },
+  { key: "created_at",                            label: "created_at",                            description: "Event timestamp (RFC 3339)" },
+  { key: "type",                                  label: "type",                                  description: "Activity type (e.g. claude_chat_created)" },
+  { key: "actor.type",                            label: "actor.type",                            description: "Actor variant (user_actor, api_actor, admin_api_key_actor, unauthenticated_user_actor, anthropic_actor, scim_directory_sync_actor)" },
+  { key: "actor.email_address",                   label: "actor.email_address",                   description: "Email of the actor (user_actor)" },
+  { key: "actor.user_id",                         label: "actor.user_id",                         description: "Anthropic user identifier (user_actor)" },
+  { key: "actor.api_key_id",                      label: "actor.api_key_id",                      description: "API key identifier (api_actor)" },
+  { key: "actor.admin_api_key_id",                label: "actor.admin_api_key_id",                description: "Admin key identifier (admin_api_key_actor)" },
+  { key: "actor.unauthenticated_email_address",   label: "actor.unauthenticated_email_address",   description: "Email provided by an unauthenticated user" },
+  { key: "actor.directory_id",                    label: "actor.directory_id",                    description: "Directory sync connection ID (scim_directory_sync_actor)" },
+  { key: "actor.ip_address",                      label: "actor.ip_address",                      description: "Source IP address" },
+  { key: "actor.user_agent",                      label: "actor.user_agent",                      description: "User agent string" },
+  { key: "claude_chat_id",                        label: "claude_chat_id",                        description: "Associated chat identifier (chat events)" },
+  { key: "claude_project_id",                     label: "claude_project_id",                     description: "Associated project identifier (chat/project events)" },
+  { key: "organization_id",                       label: "organization_id",                       description: "Anthropic organization ID (tagged)" },
+  { key: "organization_uuid",                     label: "organization_uuid",                     description: "Anthropic organization UUID" },
 ];
 
 export const ANTHROPIC_COMPLIANCE_DEFAULTS: DefaultMapping[] = [
   { sourceField: "actor.email_address", targetField: "userRef" },
+];
+
+// ---------------------------------------------------------------------------
+// Anthropic Analytics source fields (Claude Enterprise Analytics API —
+// per-user daily engagement, no token/cost data).
+// ---------------------------------------------------------------------------
+
+export const ANTHROPIC_ANALYTICS_SOURCE_FIELDS: FieldDef[] = [
+  // Identity
+  { key: "user.id",                                                              label: "user.id",                                                              description: "Anthropic user identifier" },
+  { key: "user.email_address",                                                   label: "user.email_address",                                                   description: "User email address" },
+  // Claude.ai chat
+  { key: "chat_metrics.distinct_conversation_count",                             label: "chat_metrics.distinct_conversation_count",                             description: "Distinct chat conversations that day" },
+  { key: "chat_metrics.message_count",                                           label: "chat_metrics.message_count",                                           description: "Chat messages sent" },
+  { key: "chat_metrics.distinct_projects_created_count",                         label: "chat_metrics.distinct_projects_created_count",                         description: "Projects created in chat" },
+  { key: "chat_metrics.distinct_projects_used_count",                            label: "chat_metrics.distinct_projects_used_count",                            description: "Distinct projects used in chat" },
+  { key: "chat_metrics.distinct_files_uploaded_count",                           label: "chat_metrics.distinct_files_uploaded_count",                           description: "Files uploaded in chat" },
+  { key: "chat_metrics.distinct_artifacts_created_count",                        label: "chat_metrics.distinct_artifacts_created_count",                        description: "Artifacts created in chat" },
+  { key: "chat_metrics.thinking_message_count",                                  label: "chat_metrics.thinking_message_count",                                  description: "Extended thinking messages" },
+  { key: "chat_metrics.distinct_skills_used_count",                              label: "chat_metrics.distinct_skills_used_count",                              description: "Distinct skills used in chat" },
+  { key: "chat_metrics.connectors_used_count",                                   label: "chat_metrics.connectors_used_count",                                   description: "Connector invocations in chat" },
+  // Claude Code
+  { key: "claude_code_metrics.core_metrics.commit_count",                        label: "claude_code_metrics.core_metrics.commit_count",                        description: "Git commits via Claude Code" },
+  { key: "claude_code_metrics.core_metrics.pull_request_count",                  label: "claude_code_metrics.core_metrics.pull_request_count",                  description: "PRs opened via Claude Code" },
+  { key: "claude_code_metrics.core_metrics.lines_of_code.added_count",           label: "claude_code_metrics.core_metrics.lines_of_code.added_count",           description: "Lines of code added" },
+  { key: "claude_code_metrics.core_metrics.lines_of_code.removed_count",         label: "claude_code_metrics.core_metrics.lines_of_code.removed_count",         description: "Lines of code removed" },
+  { key: "claude_code_metrics.core_metrics.distinct_session_count",              label: "claude_code_metrics.core_metrics.distinct_session_count",              description: "Distinct Claude Code sessions" },
+  { key: "claude_code_metrics.tool_actions.total_accepted",                      label: "claude_code_metrics.tool_actions.total_accepted",                      description: "Tool edits accepted (sum across all tools)" },
+  { key: "claude_code_metrics.tool_actions.total_rejected",                      label: "claude_code_metrics.tool_actions.total_rejected",                      description: "Tool edits rejected (sum across all tools)" },
+  { key: "claude_code_metrics.tool_actions.total_actions",                       label: "claude_code_metrics.tool_actions.total_actions",                       description: "Total tool edit actions" },
+  // Office Agent — Excel
+  { key: "office_metrics.excel.distinct_session_count",                          label: "office_metrics.excel.distinct_session_count",                          description: "Distinct Office Agent sessions in Excel" },
+  { key: "office_metrics.excel.message_count",                                   label: "office_metrics.excel.message_count",                                   description: "Office Agent messages in Excel" },
+  { key: "office_metrics.excel.skills_used_count",                               label: "office_metrics.excel.skills_used_count",                               description: "Skill invocations in Excel" },
+  { key: "office_metrics.excel.distinct_skills_used_count",                      label: "office_metrics.excel.distinct_skills_used_count",                      description: "Distinct skills used in Excel" },
+  { key: "office_metrics.excel.connectors_used_count",                           label: "office_metrics.excel.connectors_used_count",                           description: "Connector invocations in Excel" },
+  { key: "office_metrics.excel.distinct_connectors_used_count",                  label: "office_metrics.excel.distinct_connectors_used_count",                  description: "Distinct connectors used in Excel" },
+  // Office Agent — PowerPoint
+  { key: "office_metrics.powerpoint.distinct_session_count",                     label: "office_metrics.powerpoint.distinct_session_count",                     description: "Distinct Office Agent sessions in PowerPoint" },
+  { key: "office_metrics.powerpoint.message_count",                              label: "office_metrics.powerpoint.message_count",                              description: "Office Agent messages in PowerPoint" },
+  { key: "office_metrics.powerpoint.skills_used_count",                          label: "office_metrics.powerpoint.skills_used_count",                          description: "Skill invocations in PowerPoint" },
+  { key: "office_metrics.powerpoint.distinct_skills_used_count",                 label: "office_metrics.powerpoint.distinct_skills_used_count",                 description: "Distinct skills used in PowerPoint" },
+  { key: "office_metrics.powerpoint.connectors_used_count",                      label: "office_metrics.powerpoint.connectors_used_count",                      description: "Connector invocations in PowerPoint" },
+  { key: "office_metrics.powerpoint.distinct_connectors_used_count",             label: "office_metrics.powerpoint.distinct_connectors_used_count",             description: "Distinct connectors used in PowerPoint" },
+  // Cowork
+  { key: "cowork_metrics.distinct_session_count",                                label: "cowork_metrics.distinct_session_count",                                description: "Distinct Cowork sessions" },
+  { key: "cowork_metrics.message_count",                                         label: "cowork_metrics.message_count",                                         description: "Cowork messages sent" },
+  { key: "cowork_metrics.action_count",                                          label: "cowork_metrics.action_count",                                          description: "Successful Cowork tool calls" },
+  { key: "cowork_metrics.dispatch_turn_count",                                   label: "cowork_metrics.dispatch_turn_count",                                   description: "Completed dispatch agent turns" },
+  { key: "cowork_metrics.skills_used_count",                                     label: "cowork_metrics.skills_used_count",                                     description: "Skill invocations in Cowork" },
+  { key: "cowork_metrics.distinct_skills_used_count",                            label: "cowork_metrics.distinct_skills_used_count",                            description: "Distinct skills used in Cowork" },
+  { key: "cowork_metrics.connectors_used_count",                                 label: "cowork_metrics.connectors_used_count",                                 description: "Connector invocations in Cowork" },
+  { key: "cowork_metrics.distinct_connectors_used_count",                        label: "cowork_metrics.distinct_connectors_used_count",                        description: "Distinct connectors used in Cowork" },
+  // Misc
+  { key: "web_search_count",                                                     label: "web_search_count",                                                     description: "Web search tool invocations (chat + Claude Code)" },
+];
+
+export const ANTHROPIC_ANALYTICS_DEFAULTS: DefaultMapping[] = [
+  { sourceField: "user.email_address",                                       targetField: "userRef" },
+  { sourceField: "chat_metrics.message_count",                               targetField: "requestsCount" },
+  { sourceField: "claude_code_metrics.tool_actions.total_accepted",          targetField: "linesAccepted" },
+  { sourceField: "claude_code_metrics.tool_actions.total_actions",           targetField: "linesSuggested" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -214,6 +281,7 @@ export function getSourceFields(provider: string): FieldDef[] {
   switch (provider) {
     case "anthropic":            return ANTHROPIC_SOURCE_FIELDS;
     case "anthropic_compliance": return ANTHROPIC_COMPLIANCE_SOURCE_FIELDS;
+    case "anthropic_analytics":  return ANTHROPIC_ANALYTICS_SOURCE_FIELDS;
     case "openai":               return OPENAI_SOURCE_FIELDS;
     case "cursor":               return CURSOR_SOURCE_FIELDS;
     case "gemini":               return GEMINI_SOURCE_FIELDS;
@@ -226,6 +294,7 @@ export function getDefaultMappings(provider: string): DefaultMapping[] {
   switch (provider) {
     case "anthropic":            return ANTHROPIC_DEFAULTS;
     case "anthropic_compliance": return ANTHROPIC_COMPLIANCE_DEFAULTS;
+    case "anthropic_analytics":  return ANTHROPIC_ANALYTICS_DEFAULTS;
     case "openai":               return OPENAI_DEFAULTS;
     case "cursor":               return CURSOR_DEFAULTS;
     case "gemini":               return GEMINI_DEFAULTS;

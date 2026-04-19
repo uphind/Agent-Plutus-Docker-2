@@ -262,7 +262,7 @@ export default function SuggestionsPage() {
             Connect a provider and sync your usage data to see cost optimization suggestions.
           </p>
           <div className="flex items-center gap-3 mt-4">
-            <Link href="/dashboard/providers" className="text-sm text-brand hover:underline">
+            <Link href="/dashboard/settings" className="text-sm text-brand hover:underline">
               Connect a provider
             </Link>
             <span className="text-muted-foreground">·</span>
@@ -296,7 +296,7 @@ export default function SuggestionsPage() {
               : "Connect a provider and sync your usage data to see cost optimization suggestions."}
           </p>
           {(!data || data.summary.total === undefined) && (
-            <Link href="/dashboard/providers" className="mt-4 text-sm text-brand hover:underline">
+            <Link href="/dashboard/settings" className="mt-4 text-sm text-brand hover:underline">
               Connect a provider
             </Link>
           )}

@@ -267,4 +267,17 @@ export const api = {
     }),
   fetchProviderSample: (provider: string) =>
     apiFetch(`/providers/sample?provider=${provider}`),
+
+  runDiscovery: (input: {
+    api_key: string;
+    github_org?: string;
+    github_enterprise?: string;
+    n8n_base_url?: string;
+    vertex_project_id?: string;
+    vertex_location?: string;
+  }) =>
+    apiFetch("/providers/discovery", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
 };

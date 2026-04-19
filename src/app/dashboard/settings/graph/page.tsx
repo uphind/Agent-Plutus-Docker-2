@@ -11,6 +11,7 @@ import {
   Users, Link2, ArrowRight, GripVertical, Check,
   RefreshCw, Eye, EyeOff, AlertTriangle, Trash2, Clock, LinkIcon,
 } from "lucide-react";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
 
 const DIR_SYNC_INTERVAL_OPTIONS = [
   { value: "0", label: "Manual only" },
@@ -66,6 +67,7 @@ export function DirectorySyncContent() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ total: number; created: number; updated: number } | null>(null);
   const [isConfigured, setIsConfigured] = useState(false);
+  const [loadingConfig, setLoadingConfig] = useState(true);
 
   const [dirSyncInterval, setDirSyncInterval] = useState("0");
   const [currentDirInterval, setCurrentDirInterval] = useState("0");
@@ -170,6 +172,8 @@ export function DirectorySyncContent() {
       }
     } catch {
       // Not configured yet
+    } finally {
+      setLoadingConfig(false);
     }
   }, []);
 
@@ -307,8 +311,111 @@ export function DirectorySyncContent() {
   const hasRequiredMappings = mappings.some((m) => m.targetField === "email") &&
     mappings.some((m) => m.targetField === "name");
 
+  if (loadingConfig) {
+    return (
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Link2 className="h-4 w-4 text-muted-foreground" />
+              <CardTitle>Directory Sync</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3 animate-pulse">
+              <div className="h-4 w-2/3 bg-muted rounded" />
+              <div className="h-9 w-full bg-muted/60 rounded" />
+              <div className="h-9 w-1/3 bg-muted/60 rounded" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      {/* Sync Directory + Schedule (only when fully configured) */}
+      {step === "done" && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <RefreshCw className="h-4 w-4 text-muted-foreground" />
+                <CardTitle>Sync Directory</CardTitle>
+              </div>
+              <Badge variant="success">Connected</Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:divide-x md:divide-border">
+              {/* Left: Schedule */}
+              <div className="space-y-3 md:pr-6">
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold">Sync schedule</h3>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Automatically pull users from your directory on a recurring schedule.
+                  Set to &quot;Manual only&quot; to disable automatic sync.
+                </p>
+                <div className="flex items-end gap-3">
+                  <div className="flex-1 max-w-xs">
+                    <Select
+                      label="Interval"
+                      options={DIR_SYNC_INTERVAL_OPTIONS}
+                      value={dirSyncInterval}
+                      onChange={(e) => setDirSyncInterval(e.target.value)}
+                    />
+                  </div>
+                  <Button
+                    onClick={handleSaveDirInterval}
+                    disabled={dirSyncInterval === currentDirInterval || dirIntervalSaving}
+                    size="sm"
+                  >
+                    {dirIntervalSaving ? "Saving..." : "Save"}
+                  </Button>
+                </div>
+                {dirIntervalSaved && (
+                  <p className="text-xs text-emerald-600 font-medium">
+                    Sync schedule updated successfully
+                  </p>
+                )}
+                {dirIntervalError && (
+                  <p className="text-xs text-red-600 font-medium">{dirIntervalError}</p>
+                )}
+              </div>
+
+              {/* Right: Manual sync */}
+              <div className="space-y-3 md:pl-6">
+                <div className="flex items-center gap-2">
+                  <RefreshCw className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold">Manual sync</h3>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Pull users from your Active Directory now using the configured field mappings.
+                </p>
+                {lastDirectorySync && (
+                  <p className="text-xs text-muted-foreground">
+                    Last synced: {new Date(lastDirectorySync).toLocaleString()}
+                  </p>
+                )}
+                <Button onClick={handleSync} disabled={syncing}>
+                  {syncing ? "Syncing..." : "Sync Now"}
+                </Button>
+                {syncResult && (
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
+                    <p className="text-xs font-medium text-emerald-700">
+                      Sync complete: {syncResult.total} users processed ({syncResult.created} created, {syncResult.updated} updated)
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Step 1: Connect */}
       <Card>
         <CardHeader>
@@ -539,85 +646,49 @@ export function DirectorySyncContent() {
         </Card>
       )}
 
-      {/* Step 3: Sync & Schedule */}
+      {/* Step 3: Re-link Orphaned Records */}
       {step === "done" && (
         <>
-          {/* Manual Sync */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <RefreshCw className="h-4 w-4 text-muted-foreground" />
-                <CardTitle>Sync Directory</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Pull users from your Active Directory using the configured field mappings.
-              </p>
-              {lastDirectorySync && (
-                <p className="text-xs text-muted-foreground">
-                  Last synced: {new Date(lastDirectorySync).toLocaleString()}
-                </p>
-              )}
-              <Button onClick={handleSync} disabled={syncing}>
-                {syncing ? "Syncing..." : "Sync Now"}
-              </Button>
-              {syncResult && (
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4">
-                  <p className="text-sm font-medium text-emerald-700">
-                    Sync complete: {syncResult.total} users processed ({syncResult.created} created, {syncResult.updated} updated)
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Directory Sync Schedule */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Clock className="h-4 w-4 text-muted-foreground" />
-                <CardTitle>Directory Sync Schedule</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Automatically pull users from Active Directory on a recurring schedule.
-                Set to &quot;Manual only&quot; to disable automatic sync.
-              </p>
-              <div className="flex items-end gap-3">
-                <div className="w-64">
-                  <Select
-                    label="Sync interval"
-                    options={DIR_SYNC_INTERVAL_OPTIONS}
-                    value={dirSyncInterval}
-                    onChange={(e) => setDirSyncInterval(e.target.value)}
-                  />
-                </div>
-                <Button
-                  onClick={handleSaveDirInterval}
-                  disabled={dirSyncInterval === currentDirInterval || dirIntervalSaving}
-                >
-                  {dirIntervalSaving ? "Saving..." : "Save"}
-                </Button>
-              </div>
-              {dirIntervalSaved && (
-                <p className="text-sm text-emerald-600 font-medium">
-                  Directory sync schedule updated successfully
-                </p>
-              )}
-              {dirIntervalError && (
-                <p className="text-sm text-red-600 font-medium">{dirIntervalError}</p>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Re-link Orphaned Records */}
           <Card>
             <CardHeader>
               <div className="flex items-center gap-2">
                 <LinkIcon className="h-4 w-4 text-muted-foreground" />
                 <CardTitle>Re-link Orphaned Records</CardTitle>
+                <InfoTooltip
+                  widthClass="w-[22rem]"
+                  align="left"
+                  text={
+                    <span className="space-y-2 block">
+                      <span className="block">
+                        When usage data is ingested from a provider, each record carries an identifier
+                        (email, external user id, Cursor account id, etc.). We try to match it to a
+                        user in your directory at ingest time.
+                      </span>
+                      <span className="block">
+                        If no match is found — e.g. the directory hasn&apos;t been synced yet, the
+                        user was added later, or the provider sends a personal email — the record
+                        is stored as <strong>orphaned</strong>: kept with its full cost / token data,
+                        but not attached to any user, team, or department, so it doesn&apos;t roll up
+                        into reports.
+                      </span>
+                      <span className="block">
+                        <strong>Re-link</strong> sweeps every orphaned record and re-runs matching
+                        against the current directory:
+                      </span>
+                      <span className="block">
+                        • <strong>relinked</strong> – attached to a user that now exists<br />
+                        • <strong>merged</strong> – multiple provider records for the same person
+                        unified onto one user<br />
+                        • <strong>unresolved</strong> – still no match (often personal emails or
+                        former employees)
+                      </span>
+                      <span className="block text-muted-foreground">
+                        Safe and idempotent. Use the schedule below to run it automatically after
+                        each directory sync.
+                      </span>
+                    </span>
+                  }
+                />
               </div>
             </CardHeader>
             <CardContent className="space-y-4">

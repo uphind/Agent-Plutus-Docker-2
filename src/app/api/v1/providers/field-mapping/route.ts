@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { getOrgId } from "@/lib/org";
 import { getDefaultMappings, getSourceFields } from "@/lib/providers/field-definitions";
 
-const VALID_PROVIDERS = ["anthropic", "anthropic_compliance", "openai", "cursor", "gemini", "vertex"];
+const VALID_PROVIDERS = ["anthropic", "anthropic_compliance", "anthropic_analytics", "openai", "cursor", "gemini", "vertex"];
 
 function entityType(provider: string) {
   return `provider:${provider}`;

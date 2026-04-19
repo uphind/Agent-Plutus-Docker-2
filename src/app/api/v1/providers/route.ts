@@ -99,6 +99,8 @@ export async function POST(request: NextRequest) {
           "Anthropic requires an Admin API key (starts with sk-ant-admin...), not a regular API key. Generate one at console.anthropic.com → Settings → Admin API Keys.",
         anthropic_compliance:
           "Anthropic Compliance requires a Compliance Access Key with read:compliance_activities scope. Generate one at console.anthropic.com → Organization Settings → Data and Privacy → Compliance API. Enterprise plans only.",
+        anthropic_analytics:
+          "Anthropic Analytics requires an Analytics API key with the read:analytics scope. As a Primary Owner, generate one at claude.ai/analytics/api-keys. Enterprise plans only — data is delayed by 3 days.",
         openai:
           "OpenAI requires an Admin API key with organization-level permissions. Generate one at platform.openai.com → Settings → Admin API keys.",
         gemini:
