@@ -109,6 +109,12 @@ export async function POST(request: NextRequest) {
           "Cursor requires an Enterprise Analytics API key. Generate one from your team settings at cursor.com/settings.",
         vertex:
           "Vertex AI requires a GCP Service Account JSON key with Monitoring Viewer permissions. Paste the full JSON content.",
+        microsoft_copilot:
+          "Microsoft 365 Copilot is reached via Microsoft Graph, not a single static vendor key. Use an Entra ID access token (Bearer eyJ…). /me validates the token; Copilot usage reports need Reports.Read.All (see Microsoft Graph documentation).",
+        lovable:
+          "Lovable uses a Bearer token for api.lovable.dev. Generate or copy an API token from your Lovable workspace settings.",
+        n8n:
+          "n8n expects JSON in the API key field: {\"v\":1,\"baseUrl\":\"https://your-n8n.example.com\",\"apiKey\":\"…\"} with your instance URL and n8n API key (Settings → API).",
       };
 
       return NextResponse.json(

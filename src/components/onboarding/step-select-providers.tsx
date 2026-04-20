@@ -10,8 +10,8 @@ import { Plug, Check, Sparkles, MoreHorizontal } from "lucide-react";
  * Discovery loop afterwards, filtered to the chosen `discoveryProviderIds`.
  *
  * `internalProvider` is the Prisma `Provider` enum value used when saving
- * the credential; for providers we don't yet sync (Microsoft Copilot today),
- * the wizard surfaces a "request integration" path instead of a save path.
+ * the credential. When it is null, the wizard surfaces a "request integration"
+ * path instead of save + mapping.
  *
  * The "other" tile triggers an unfiltered Discovery so a key for any other
  * supported endpoint can still be detected.
@@ -72,11 +72,31 @@ const TILES: ProviderSelection[] = [
     badgeFg: "text-blue-700",
   },
   {
+    id: "lovable",
+    label: "Lovable",
+    hint: "Lovable Cloud API — projects and workspace",
+    discoveryProviderIds: ["lovable"],
+    internalProvider: "lovable",
+    badgeText: "L",
+    badgeBg: "bg-rose-100",
+    badgeFg: "text-rose-700",
+  },
+  {
+    id: "n8n",
+    label: "n8n",
+    hint: "Self-hosted or n8n Cloud — REST API key + your instance URL",
+    discoveryProviderIds: ["n8n"],
+    internalProvider: "n8n",
+    badgeText: "n",
+    badgeBg: "bg-indigo-100",
+    badgeFg: "text-indigo-700",
+  },
+  {
     id: "microsoft_copilot",
     label: "Microsoft Copilot",
-    hint: "M365 Copilot via Microsoft Graph",
+    hint: "Microsoft Graph — Entra ID Bearer token (not a static API key). Copilot reports need Reports.Read.All.",
     discoveryProviderIds: ["microsoft_copilot"],
-    internalProvider: null,
+    internalProvider: "microsoft_copilot",
     badgeText: "M",
     badgeBg: "bg-sky-100",
     badgeFg: "text-sky-700",
@@ -94,10 +114,12 @@ const TILES: ProviderSelection[] = [
 ];
 
 export function StepSelectProviders({
+  mode = "onboarding",
   initiallySelected,
   onNext,
   onSkip,
 }: {
+  mode?: "onboarding" | "add-provider";
   initiallySelected?: string[];
   onNext: (selection: ProviderSelection[]) => void;
   onSkip: () => void;
@@ -106,6 +128,10 @@ export function StepSelectProviders({
 
   const toggle = (id: string) =>
     setSelected((prev) => {
+      if (mode === "add-provider") {
+        if (prev.has(id)) return new Set();
+        return new Set([id]);
+      }
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -115,6 +141,7 @@ export function StepSelectProviders({
   const handleContinue = () => {
     const picked = TILES.filter((t) => selected.has(t.id));
     if (picked.length === 0) return;
+    if (mode === "add-provider" && picked.length !== 1) return;
     onNext(picked);
   };
 
@@ -123,14 +150,25 @@ export function StepSelectProviders({
       <CardHeader>
         <div className="flex items-center gap-2">
           <Plug className="h-4 w-4 text-muted-foreground" />
-          <CardTitle>Which providers do you have?</CardTitle>
+          <CardTitle>
+            {mode === "add-provider" ? "Select a provider to add" : "Which providers do you have?"}
+          </CardTitle>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Pick every provider you want to wire up now. We&apos;ll go through them one at a
-          time in the next steps — paste a key, run filtered Discovery for that provider, and
-          confirm the field mapping.
+          {mode === "add-provider" ? (
+            <>
+              Choose one provider. We&apos;ll run filtered Discovery for it, then let you confirm
+              field mapping — same flow as onboarding, without repeating the earlier setup steps.
+            </>
+          ) : (
+            <>
+              Pick every provider you want to wire up now. We&apos;ll go through them one at a
+              time in the next steps — paste a key, run filtered Discovery for that provider, and
+              confirm the field mapping.
+            </>
+          )}
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -177,12 +215,21 @@ export function StepSelectProviders({
 
         <div className="flex items-center justify-between pt-2 border-t border-border">
           <p className="text-xs text-muted-foreground">
-            {selected.size} selected · pick at least one to continue
+            {mode === "add-provider"
+              ? selected.size === 0
+                ? "Pick one provider to continue"
+                : "1 selected"
+              : `${selected.size} selected · pick at least one to continue`}
           </p>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={onSkip}>Skip for now</Button>
-            <Button onClick={handleContinue} disabled={selected.size === 0}>
-              Continue ({selected.size})
+            <Button variant="ghost" onClick={onSkip}>
+              {mode === "add-provider" ? "Cancel" : "Skip for now"}
+            </Button>
+            <Button
+              onClick={handleContinue}
+              disabled={mode === "add-provider" ? selected.size !== 1 : selected.size === 0}
+            >
+              {mode === "add-provider" ? "Continue" : `Continue (${selected.size})`}
             </Button>
           </div>
         </div>

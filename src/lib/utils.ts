@@ -35,6 +35,9 @@ export const PROVIDER_LABELS: Record<string, string> = {
   gemini: "Gemini",
   cursor: "Cursor",
   vertex: "Vertex AI",
+  microsoft_copilot: "Microsoft 365 Copilot",
+  lovable: "Lovable",
+  n8n: "n8n",
 };
 
 export const PROVIDER_COLORS: Record<string, string> = {
@@ -45,6 +48,9 @@ export const PROVIDER_COLORS: Record<string, string> = {
   gemini: "#8E75B2",
   cursor: "#6366F1",
   vertex: "#4285F4",
+  microsoft_copilot: "#0078D4",
+  lovable: "#E11D48",
+  n8n: "#EA4B71",
 };
 
 const MODEL_LABELS: Record<string, string> = {

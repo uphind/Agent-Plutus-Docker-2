@@ -3,11 +3,13 @@
 import { useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   Plug, Eye, EyeOff, Loader2, Radar, CheckCircle, XCircle, AlertTriangle, Sparkles, SkipForward,
 } from "lucide-react";
 import { api } from "@/lib/dashboard-api";
+import type { N8nCredentialPayload } from "@/lib/providers/n8n";
 import { addRequestedIntegration } from "@/lib/requested-integrations";
 import type { ProviderSelection } from "./step-select-providers";
 import type { DiscoveredEndpointSummary } from "./wizard";
@@ -58,6 +60,7 @@ export function StepProviderDiscovery({
   positionLabel?: string;
 }) {
   const [keyInput, setKeyInput] = useState("");
+  const [n8nBaseUrl, setN8nBaseUrl] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<ProbeResult[]>([]);
@@ -74,8 +77,12 @@ export function StepProviderDiscovery({
   const successResults = results.filter((r) => r.status === "ok" || r.status === "no_data");
   const noResultsAfterRun = !running && total > 0 && successResults.length === 0;
 
+  const isN8n = selection.id === "n8n";
+  const isMicrosoftGraph = selection.id === "microsoft_copilot";
+
   const handleRun = async () => {
     if (!keyInput.trim()) return;
+    if (isN8n && !n8nBaseUrl.trim()) return;
     setRunning(true);
     setError(null);
     setResults([]);
@@ -94,6 +101,7 @@ export function StepProviderDiscovery({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           api_key: keyInput.trim(),
+          n8n_base_url: isN8n ? n8nBaseUrl.trim() : undefined,
           providers:
             selection.discoveryProviderIds.length > 0
               ? selection.discoveryProviderIds
@@ -160,7 +168,16 @@ export function StepProviderDiscovery({
     try {
       const sample = successResults[0];
       const label = `${sample?.providerLabel ?? selection.label} · ${sample?.apiName ?? "Discovery"}`;
-      await api.addProvider(internal, keyInput.trim(), label);
+      let credential = keyInput.trim();
+      if (internal === "n8n") {
+        const payload: N8nCredentialPayload = {
+          v: 1,
+          baseUrl: n8nBaseUrl.trim().replace(/\/+$/, ""),
+          apiKey: keyInput.trim(),
+        };
+        credential = JSON.stringify(payload);
+      }
+      await api.addProvider(internal, credential, label);
       const endpoints: DiscoveredEndpointSummary[] = successResults
         .filter((r) => (r.internalProvider ?? null) === internal)
         .filter((r) => r.fields && r.fields.length > 0)
@@ -174,7 +191,7 @@ export function StepProviderDiscovery({
       onNext({
         internalProvider: internal,
         discoveredEndpoints: endpoints,
-        apiKey: keyInput.trim(),
+        apiKey: credential,
       });
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : "Failed to save provider credential");
@@ -212,19 +229,48 @@ export function StepProviderDiscovery({
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Paste your <strong>{selection.label}</strong> API key. We&apos;ll probe only{" "}
-          <span className="font-mono">{selection.label}</span>&apos;s endpoints (
-          {selection.discoveryProviderIds.length > 0
-            ? `${selection.discoveryProviderIds.join(", ")}`
-            : "every supported endpoint, since you picked Other"}
-          ) so this is fast.
-          {!selection.internalProvider && selection.id !== "other" && (
+          {isMicrosoftGraph ? (
             <>
-              {" "}There&apos;s no sync adapter for {selection.label} yet, so we can&apos;t
-              save the credential — but we&apos;ll log it on your requested-integrations list.
+              Paste a valid <strong>Microsoft Graph access token</strong> (Bearer{" "}
+              <span className="font-mono">eyJ…</span>) from Entra ID. This is{" "}
+              <strong>not</strong> a static vendor API key — it is an OAuth access token with
+              the right Graph scopes (for example <span className="font-mono">User.Read</span>{" "}
+              for <span className="font-mono">/me</span>; Copilot usage reports need{" "}
+              <span className="font-mono">Reports.Read.All</span>). We probe only{" "}
+              <span className="font-mono">microsoft_copilot</span> endpoints so this stays fast.
+            </>
+          ) : isN8n ? (
+            <>
+              Enter your <strong>n8n instance base URL</strong> and <strong>API key</strong> (from
+              n8n Settings → API). We probe only the n8n REST surface. The key is stored encrypted
+              together with the URL as one credential.
+            </>
+          ) : (
+            <>
+              Paste your <strong>{selection.label}</strong> API key. We&apos;ll probe only{" "}
+              <span className="font-mono">{selection.label}</span>&apos;s endpoints (
+              {selection.discoveryProviderIds.length > 0
+                ? `${selection.discoveryProviderIds.join(", ")}`
+                : "every supported endpoint, since you picked Other"}
+              ) so this is fast.
+              {!selection.internalProvider && selection.id !== "other" && (
+                <>
+                  {" "}There&apos;s no sync adapter for {selection.label} yet, so we can&apos;t
+                  save the credential — but we&apos;ll log it on your requested-integrations list.
+                </>
+              )}
             </>
           )}
         </p>
+
+        {isN8n && (
+          <Input
+            label="n8n base URL"
+            placeholder="https://n8n.example.com"
+            value={n8nBaseUrl}
+            onChange={(e) => setN8nBaseUrl(e.target.value)}
+          />
+        )}
 
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
@@ -232,7 +278,13 @@ export function StepProviderDiscovery({
               value={keyInput}
               onChange={(e) => setKeyInput(e.target.value)}
               type={showKey ? "text" : "password"}
-              placeholder={`${selection.label} API key`}
+              placeholder={
+                isMicrosoftGraph
+                  ? "Entra ID access token (eyJ…)"
+                  : isN8n
+                    ? "n8n API key"
+                    : `${selection.label} API key`
+              }
               className="flex h-10 w-full rounded-lg border border-border bg-card px-3 py-1.5 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring font-mono"
               autoFocus
             />
@@ -245,7 +297,10 @@ export function StepProviderDiscovery({
               {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
-          <Button onClick={handleRun} disabled={!keyInput.trim() || running}>
+          <Button
+            onClick={handleRun}
+            disabled={!keyInput.trim() || running || (isN8n && !n8nBaseUrl.trim())}
+          >
             {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Radar className="h-3.5 w-3.5" />}
             {running ? "Probing..." : "Run discovery"}
           </Button>

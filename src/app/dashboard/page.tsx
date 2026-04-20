@@ -265,7 +265,7 @@ export default function OverviewPage() {
                     data={data.byProvider.map((p) => ({
                       name: PROVIDER_LABELS[p.provider] ?? p.provider,
                       value: Number(p._sum.costUsd ?? 0),
-                      color: ({ anthropic: "#D4A574", anthropic_compliance: "#A67E47", anthropic_analytics: "#C68A4F", openai: "#10A37F", gemini: "#8E75B2", cursor: "#6366F1", vertex: "#4285F4" } as Record<string, string>)[p.provider],
+                      color: ({ anthropic: "#D4A574", anthropic_compliance: "#A67E47", anthropic_analytics: "#C68A4F", openai: "#10A37F", gemini: "#8E75B2", cursor: "#6366F1", vertex: "#4285F4", microsoft_copilot: "#0078D4", lovable: "#E11D48", n8n: "#EA4B71" } as Record<string, string>)[p.provider],
                     }))}
                   />
                 )}

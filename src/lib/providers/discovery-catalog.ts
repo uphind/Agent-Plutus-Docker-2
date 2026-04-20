@@ -58,7 +58,10 @@ export type InternalProviderId =
   | "openai"
   | "gemini"
   | "cursor"
-  | "vertex";
+  | "vertex"
+  | "microsoft_copilot"
+  | "lovable"
+  | "n8n";
 
 export interface DiscoveryEndpoint {
   id: string;
@@ -810,6 +813,7 @@ const LOVABLE_ENDPOINTS: DiscoveryEndpoint[] = [
     id: "lovable.api.me",
     provider: "lovable",
     providerLabel: "Lovable",
+    internalProvider: "lovable",
     apiName: "Lovable API",
     endpointName: "Current User / Workspace",
     description: "Best-effort identity probe against Lovable's API surface.",
@@ -824,6 +828,7 @@ const LOVABLE_ENDPOINTS: DiscoveryEndpoint[] = [
     id: "lovable.api.projects",
     provider: "lovable",
     providerLabel: "Lovable",
+    internalProvider: "lovable",
     apiName: "Lovable API",
     endpointName: "List Projects",
     description: "Projects accessible to this token.",
@@ -983,6 +988,7 @@ const MICROSOFT_COPILOT_ENDPOINTS: DiscoveryEndpoint[] = [
     id: "msgraph.me",
     provider: "microsoft_copilot",
     providerLabel: "Microsoft 365 Copilot",
+    internalProvider: "microsoft_copilot",
     apiName: "Microsoft Graph · Identity",
     endpointName: "Authenticated Identity (/me)",
     description: "Cheapest possible probe — confirms the Entra ID token is live.",
@@ -998,6 +1004,7 @@ const MICROSOFT_COPILOT_ENDPOINTS: DiscoveryEndpoint[] = [
     id: "msgraph.organization",
     provider: "microsoft_copilot",
     providerLabel: "Microsoft 365 Copilot",
+    internalProvider: "microsoft_copilot",
     apiName: "Microsoft Graph · Identity",
     endpointName: "Tenant Organization",
     description: "Confirms the tenant the token is scoped to.",
@@ -1013,6 +1020,7 @@ const MICROSOFT_COPILOT_ENDPOINTS: DiscoveryEndpoint[] = [
     id: "msgraph.users.list",
     provider: "microsoft_copilot",
     providerLabel: "Microsoft 365 Copilot",
+    internalProvider: "microsoft_copilot",
     apiName: "Microsoft Graph · Identity",
     endpointName: "List Users (top 5)",
     description: "Validates User.Read.All / Directory.Read.All scope.",
@@ -1028,6 +1036,7 @@ const MICROSOFT_COPILOT_ENDPOINTS: DiscoveryEndpoint[] = [
     id: "msgraph.copilot.usage_user_count_summary",
     provider: "microsoft_copilot",
     providerLabel: "Microsoft 365 Copilot",
+    internalProvider: "microsoft_copilot",
     apiName: "Microsoft Graph · Copilot Reports",
     endpointName: "Copilot Usage · User Count Summary",
     description: "High-level summary of Copilot enabled / active users for the period.",
@@ -1045,6 +1054,7 @@ const MICROSOFT_COPILOT_ENDPOINTS: DiscoveryEndpoint[] = [
     id: "msgraph.copilot.usage_user_counts",
     provider: "microsoft_copilot",
     providerLabel: "Microsoft 365 Copilot",
+    internalProvider: "microsoft_copilot",
     apiName: "Microsoft Graph · Copilot Reports",
     endpointName: "Copilot Usage · User Counts (per day)",
     description: "Per-day enabled vs. active Copilot users across surfaces (Teams, Outlook, Word, etc.).",
@@ -1062,6 +1072,7 @@ const MICROSOFT_COPILOT_ENDPOINTS: DiscoveryEndpoint[] = [
     id: "msgraph.copilot.usage_user_detail",
     provider: "microsoft_copilot",
     providerLabel: "Microsoft 365 Copilot",
+    internalProvider: "microsoft_copilot",
     apiName: "Microsoft Graph · Copilot Reports",
     endpointName: "Copilot Usage · Per-User Detail",
     description: "Per-user last-activity timestamps across each Copilot surface.",
@@ -1079,6 +1090,7 @@ const MICROSOFT_COPILOT_ENDPOINTS: DiscoveryEndpoint[] = [
     id: "msgraph.copilot.interaction_history.user",
     provider: "microsoft_copilot",
     providerLabel: "Microsoft 365 Copilot",
+    internalProvider: "microsoft_copilot",
     apiName: "Microsoft Graph · Copilot Interactions",
     endpointName: "User Copilot Interaction History",
     description:
@@ -1097,6 +1109,7 @@ const MICROSOFT_COPILOT_ENDPOINTS: DiscoveryEndpoint[] = [
     id: "msgraph.copilot.interaction_history.tenant",
     provider: "microsoft_copilot",
     providerLabel: "Microsoft 365 Copilot",
+    internalProvider: "microsoft_copilot",
     apiName: "Microsoft Graph · Copilot Interactions",
     endpointName: "Tenant-wide Copilot Interaction History",
     description:
@@ -1115,6 +1128,7 @@ const MICROSOFT_COPILOT_ENDPOINTS: DiscoveryEndpoint[] = [
     id: "msgraph.subscribed_skus",
     provider: "microsoft_copilot",
     providerLabel: "Microsoft 365 Copilot",
+    internalProvider: "microsoft_copilot",
     apiName: "Microsoft Graph · Licensing",
     endpointName: "Subscribed SKUs (incl. Copilot license)",
     description:
@@ -1143,6 +1157,7 @@ const N8N_ENDPOINTS: DiscoveryEndpoint[] = [
     id: "n8n.api.workflows",
     provider: "n8n",
     providerLabel: "n8n",
+    internalProvider: "n8n",
     apiName: "Public REST API",
     endpointName: "List Workflows",
     description: "All workflows visible to the API key.",
@@ -1163,6 +1178,7 @@ const N8N_ENDPOINTS: DiscoveryEndpoint[] = [
     id: "n8n.api.executions",
     provider: "n8n",
     providerLabel: "n8n",
+    internalProvider: "n8n",
     apiName: "Public REST API",
     endpointName: "List Executions",
     description: "Recent workflow executions.",
@@ -1183,6 +1199,7 @@ const N8N_ENDPOINTS: DiscoveryEndpoint[] = [
     id: "n8n.api.users",
     provider: "n8n",
     providerLabel: "n8n",
+    internalProvider: "n8n",
     apiName: "Public REST API",
     endpointName: "List Users",
     description: "Tenant users (Cloud / SSO instances).",
@@ -1203,6 +1220,7 @@ const N8N_ENDPOINTS: DiscoveryEndpoint[] = [
     id: "n8n.api.credentials",
     provider: "n8n",
     providerLabel: "n8n",
+    internalProvider: "n8n",
     apiName: "Public REST API",
     endpointName: "List Credentials",
     description: "Credential metadata (no secrets).",

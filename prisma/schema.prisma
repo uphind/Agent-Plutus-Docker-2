@@ -144,6 +144,12 @@ enum Provider {
   gemini
   cursor
   vertex
+  /// Microsoft 365 Copilot + Graph reports (Bearer access token, not a static vendor key).
+  microsoft_copilot
+  /// Lovable Cloud API (Bearer token from Lovable).
+  lovable
+  /// n8n instance REST API — credential JSON: { "v": 1, "baseUrl": "https://…", "apiKey": "…" }.
+  n8n
 }
 
 model ProviderCredential {

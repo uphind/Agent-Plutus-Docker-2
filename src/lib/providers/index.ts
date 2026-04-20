@@ -7,6 +7,9 @@ import { openaiAdapter } from "./openai";
 import { geminiAdapter } from "./gemini";
 import { cursorAdapter } from "./cursor";
 import { vertexAdapter } from "./vertex";
+import { microsoftCopilotAdapter } from "./microsoft_copilot";
+import { lovableAdapter } from "./lovable";
+import { n8nAdapter } from "./n8n";
 
 export const providerAdapters: Record<Provider, ProviderAdapter> = {
   [Provider.anthropic]: anthropicAdapter,
@@ -16,6 +19,9 @@ export const providerAdapters: Record<Provider, ProviderAdapter> = {
   [Provider.gemini]: geminiAdapter,
   [Provider.cursor]: cursorAdapter,
   [Provider.vertex]: vertexAdapter,
+  [Provider.microsoft_copilot]: microsoftCopilotAdapter,
+  [Provider.lovable]: lovableAdapter,
+  [Provider.n8n]: n8nAdapter,
 };
 
 export function getAdapter(provider: Provider): ProviderAdapter {

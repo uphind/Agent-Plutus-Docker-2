@@ -40,6 +40,9 @@ const PROVIDERS = [
   { value: "gemini", label: "Gemini", hint: "Google AI Studio API key" },
   { value: "cursor", label: "Cursor", hint: "Enterprise Analytics API key" },
   { value: "vertex", label: "Vertex AI", hint: "GCP Service Account JSON" },
+  { value: "microsoft_copilot", label: "Microsoft 365 Copilot", hint: "Microsoft Graph Bearer token (Entra ID) — use Add provider for guided Discovery" },
+  { value: "lovable", label: "Lovable", hint: "Lovable API Bearer token" },
+  { value: "n8n", label: "n8n", hint: "Credential JSON {\"v\":1,\"baseUrl\":\"https://…\",\"apiKey\":\"…\"}" },
 ];
 
 interface ProviderCred {
@@ -768,6 +771,7 @@ export function ProvidersContent({ showHeader = true }: ProvidersContentProps) {
           className="max-w-3xl"
         >
           <OnboardingWizard
+            variant="add-provider"
             initialStep="select-providers"
             onComplete={() => {
               setShowWizard(false);

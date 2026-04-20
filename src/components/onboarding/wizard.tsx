@@ -90,13 +90,22 @@ const HEADER_STEPS: OnboardingStepId[] = [
   "provider-mapping",
 ];
 
+export type OnboardingWizardVariant = "full" | "add-provider";
+
 interface OnboardingWizardProps {
   initialStep?: OnboardingStepId;
+  /** `add-provider` hides the full progress header and streamlines copy for Settings → Add provider. */
+  variant?: OnboardingWizardVariant;
   onComplete: (opts: { skipped: boolean }) => void;
   onClose?: () => void;
 }
 
-export function OnboardingWizard({ initialStep = "welcome", onComplete, onClose }: OnboardingWizardProps) {
+export function OnboardingWizard({
+  initialStep = "welcome",
+  variant = "full",
+  onComplete,
+  onClose,
+}: OnboardingWizardProps) {
   const [stepId, setStepId] = useState<OnboardingStepId>(initialStep);
   const [flow, setFlow] = useState<OnboardingFlowState>({
     selectedProviders: [],
@@ -191,12 +200,21 @@ export function OnboardingWizard({ initialStep = "welcome", onComplete, onClose 
       case "select-providers":
         return (
           <StepSelectProviders
+            mode={variant === "add-provider" ? "add-provider" : "onboarding"}
             initiallySelected={flow.selectedProviders.map((p) => p.id)}
             onNext={(selection) => {
               updateFlow({ selectedProviders: selection, currentProviderIndex: 0 });
-              setStepId("ai");
+              if (variant === "add-provider") {
+                setStepId("provider-discovery");
+              } else {
+                setStepId("ai");
+              }
             }}
             onSkip={() => {
+              if (variant === "add-provider") {
+                onComplete({ skipped: true });
+                return;
+              }
               updateFlow({ selectedProviders: [] });
               setStepId("ai");
             }}
@@ -256,65 +274,75 @@ export function OnboardingWizard({ initialStep = "welcome", onComplete, onClose 
         );
 
       case "done":
-        return <StepDone onFinish={finish} />;
+        return <StepDone variant={variant} onFinish={finish} />;
 
       default:
         return null;
     }
-  }, [stepId, flow, currentSelection, updateFlow, advanceToNextProviderOrDone, finish]);
+  }, [stepId, flow, currentSelection, updateFlow, advanceToNextProviderOrDone, finish, variant, onComplete]);
 
   return (
     <div className="space-y-6">
-      <Card className="p-5">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 flex-wrap">
-            {HEADER_STEPS.map((id, idx) => {
-              const meta = STEP_LABELS[id];
-              const headerIdx = HEADER_STEPS.indexOf(stepId);
-              const reached = headerIdx >= idx;
-              const isCurrent = stepId === id;
-              const isLoopStep = id === "provider-discovery" || id === "provider-mapping";
-              const subtitle =
-                isLoopStep && flow.selectedProviders.length > 0
-                  ? `(${Math.min(flow.currentProviderIndex + 1, flow.selectedProviders.length)} of ${flow.selectedProviders.length})`
-                  : null;
-              return (
-                <div key={id} className="flex items-center gap-1.5">
-                  {reached ? (
-                    <CheckCircle className={`h-3.5 w-3.5 ${isCurrent ? "text-brand" : "text-emerald-500"}`} />
-                  ) : (
-                    <Circle className="h-3.5 w-3.5 text-muted-foreground/40" />
-                  )}
-                  <span
-                    className={`text-xs ${
-                      isCurrent ? "font-semibold text-foreground" : reached ? "text-foreground" : "text-muted-foreground"
-                    }`}
-                  >
-                    {meta.label}
-                    {meta.optional && <span className="text-muted-foreground ml-1">(optional)</span>}
-                    {subtitle && <span className="text-muted-foreground ml-1">{subtitle}</span>}
-                  </span>
-                  {idx < HEADER_STEPS.length - 1 && (
-                    <ChevronRight className="h-3 w-3 text-muted-foreground/30 ml-0.5" />
-                  )}
-                </div>
-              );
-            })}
+      {variant === "full" && (
+        <Card className="p-5">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2 flex-wrap">
+              {HEADER_STEPS.map((id, idx) => {
+                const meta = STEP_LABELS[id];
+                const headerIdx = HEADER_STEPS.indexOf(stepId);
+                const reached = headerIdx >= idx;
+                const isCurrent = stepId === id;
+                const isLoopStep = id === "provider-discovery" || id === "provider-mapping";
+                const subtitle =
+                  isLoopStep && flow.selectedProviders.length > 0
+                    ? `(${Math.min(flow.currentProviderIndex + 1, flow.selectedProviders.length)} of ${flow.selectedProviders.length})`
+                    : null;
+                return (
+                  <div key={id} className="flex items-center gap-1.5">
+                    {reached ? (
+                      <CheckCircle className={`h-3.5 w-3.5 ${isCurrent ? "text-brand" : "text-emerald-500"}`} />
+                    ) : (
+                      <Circle className="h-3.5 w-3.5 text-muted-foreground/40" />
+                    )}
+                    <span
+                      className={`text-xs ${
+                        isCurrent ? "font-semibold text-foreground" : reached ? "text-foreground" : "text-muted-foreground"
+                      }`}
+                    >
+                      {meta.label}
+                      {meta.optional && <span className="text-muted-foreground ml-1">(optional)</span>}
+                      {subtitle && <span className="text-muted-foreground ml-1">{subtitle}</span>}
+                    </span>
+                    {idx < HEADER_STEPS.length - 1 && (
+                      <ChevronRight className="h-3 w-3 text-muted-foreground/30 ml-0.5" />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {stepId !== "done" && (
+                <Button variant="ghost" size="sm" onClick={skipRest}>
+                  Skip onboarding
+                </Button>
+              )}
+              {onClose && (
+                <Button variant="ghost" size="sm" onClick={onClose}>
+                  Close
+                </Button>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {stepId !== "done" && (
-              <Button variant="ghost" size="sm" onClick={skipRest}>
-                Skip onboarding
-              </Button>
-            )}
-            {onClose && (
-              <Button variant="ghost" size="sm" onClick={onClose}>
-                Close
-              </Button>
-            )}
-          </div>
+        </Card>
+      )}
+
+      {variant === "add-provider" && onClose && stepId !== "done" && (
+        <div className="flex justify-end">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Close
+          </Button>
         </div>
-      </Card>
+      )}
 
       {stepBody}
     </div>
