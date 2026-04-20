@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Header } from "@/components/layout/header";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,13 +12,13 @@ import { PROVIDER_LABELS } from "@/lib/utils";
 import {
   Plug, RefreshCw, Trash2, CheckCircle, XCircle, Key, Save, X,
   Clock, AlertTriangle, FolderSync, GitCompareArrows, Radar,
-  TableIcon, LayoutGrid,
+  TableIcon, LayoutGrid, Plus, Pencil, EyeOff, Sparkles,
 } from "lucide-react";
 import Link from "next/link";
+import { Modal } from "@/components/ui/modal";
 import { ProviderFieldMappingModal } from "@/components/provider-field-mapping-modal";
 import { useViewPreference } from "@/lib/use-view-preference";
 import { useRequestedIntegrations } from "@/lib/requested-integrations";
-import { Sparkles } from "lucide-react";
 
 const DIR_DISCLAIMER_DISMISSED_KEY = "provider-dir-disclaimer-dismissed";
 
@@ -73,6 +73,50 @@ export function ProvidersContent({ showHeader = true }: ProvidersContentProps) {
   const [disclaimerDismissed, setDisclaimerDismissed] = useState(false);
   const [mappingProvider, setMappingProvider] = useState<string | null>(null);
   const [layout, setLayout] = useViewPreference<"table" | "cards">("providers.layout", "table");
+
+  // Curated list of providers the user wants visible. Defaults to all known
+  // providers so nothing is hidden until the user explicitly hides one.
+  // This is purely a view preference — hiding a provider here does NOT delete
+  // any saved credential or mapping; it just removes the row from this list
+  // so users can keep their workspace focused.
+  const ALL_PROVIDER_IDS = useMemo(() => PROVIDERS.map((p) => p.value), []);
+  const [visibleProviderIds, setVisibleProviderIds] = useViewPreference<string[]>(
+    "providers.visibleIds",
+    ALL_PROVIDER_IDS
+  );
+  const [editMode, setEditMode] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  // Always show providers that are currently configured even if the user
+  // hasn't explicitly opted them in — otherwise a stored credential could
+  // get orphaned in the UI.
+  const visibleProviders = useMemo(() => {
+    const visibleSet = new Set(visibleProviderIds);
+    const configuredProviders = new Set(credentials.filter((c) => c.isActive).map((c) => c.provider));
+    return PROVIDERS.filter((p) => visibleSet.has(p.value) || configuredProviders.has(p.value));
+  }, [visibleProviderIds, credentials]);
+
+  const hiddenProviders = useMemo(() => {
+    const visibleSet = new Set(visibleProviders.map((p) => p.value));
+    return PROVIDERS.filter((p) => !visibleSet.has(p.value));
+  }, [visibleProviders]);
+
+  const handleAddProviderToView = (id: string) => {
+    setVisibleProviderIds(Array.from(new Set([...visibleProviderIds, id])));
+  };
+
+  const handleHideProviderFromView = (id: string) => {
+    // Don't allow hiding a connected provider — it would lose its row even
+    // though the credential is still active. Surface a confirmation prompt.
+    const cred = credentials.find((c) => c.provider === id);
+    if (cred?.isActive) {
+      const ok = confirm(
+        "This provider has an active credential. Hiding it from the list won't delete the credential — the row will reappear automatically. Continue?"
+      );
+      if (!ok) return;
+    }
+    setVisibleProviderIds(visibleProviderIds.filter((v) => v !== id));
+  };
 
   const showDisclaimer = directoryConfigured === false && !disclaimerDismissed;
   const disableConfigButtons = showDisclaimer;
@@ -171,28 +215,11 @@ export function ProvidersContent({ showHeader = true }: ProvidersContentProps) {
 
   return (
     <div className="space-y-6">
-      {showHeader ? (
+      {showHeader && (
         <Header
           title="Providers"
           description="Configure API keys for your AI platforms"
-          action={
-            <Link href="/dashboard/providers/discovery">
-              <Button variant="secondary" size="sm">
-                <Radar className="h-3.5 w-3.5" />
-                Discovery
-              </Button>
-            </Link>
-          }
         />
-      ) : (
-        <div className="flex items-center justify-end">
-          <Link href="/dashboard/providers/discovery">
-            <Button variant="secondary" size="sm">
-              <Radar className="h-3.5 w-3.5" />
-              Discovery
-            </Button>
-          </Link>
-        </div>
       )}
 
       {error && (
@@ -267,8 +294,51 @@ export function ProvidersContent({ showHeader = true }: ProvidersContentProps) {
         </div>
       </Card>
 
-      <div className="flex items-center justify-between">
+      {/* Discovery callout */}
+      <Card className="p-5 border-brand/30 bg-gradient-to-br from-brand/5 via-card to-card">
+        <div className="flex items-start gap-4">
+          <div className="rounded-lg bg-brand/10 p-2.5 shrink-0">
+            <Radar className="h-5 w-5 text-brand" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-sm font-semibold mb-1">Don&apos;t know which provider an API key belongs to?</h3>
+            <p className="text-xs text-muted-foreground mb-3">
+              Run <strong>Discovery</strong> to probe every supported endpoint with a single key
+              and see exactly which providers, sub-APIs, and fields respond — then save and map
+              the matches in one click.
+            </p>
+            <Link href="/dashboard/providers/discovery">
+              <Button size="sm">
+                <Radar className="h-3.5 w-3.5" />
+                Open Discovery
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </Card>
+
+      <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold">Configured providers</h3>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setShowAddModal(true)}
+            disabled={hiddenProviders.length === 0}
+            title={hiddenProviders.length === 0 ? "All known providers already shown" : "Add a provider to your list"}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Provider
+          </Button>
+          <Button
+            size="sm"
+            variant={editMode ? "primary" : "ghost"}
+            onClick={() => setEditMode((v) => !v)}
+            title="Hide providers you don't use from this list"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            {editMode ? "Done" : "Edit"}
+          </Button>
         <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
           <button
             type="button"
@@ -294,6 +364,7 @@ export function ProvidersContent({ showHeader = true }: ProvidersContentProps) {
           >
             <LayoutGrid className="h-3.5 w-3.5" />
           </button>
+        </div>
         </div>
       </div>
 
@@ -329,7 +400,7 @@ export function ProvidersContent({ showHeader = true }: ProvidersContentProps) {
               </tr>
             </thead>
             <tbody>
-              {PROVIDERS.map((p) => {
+              {visibleProviders.map((p) => {
                 const cred = credentials.find((c) => c.provider === p.value);
                 const isConnected = !!cred?.isActive;
                 const isConfiguring = configuring === p.value;
@@ -379,7 +450,7 @@ export function ProvidersContent({ showHeader = true }: ProvidersContentProps) {
                               <Button variant="ghost" size="sm" onClick={() => handleConfigure(p.value)} title="Update key">
                                 <Key className="h-3.5 w-3.5" />
                               </Button>
-                              <Button variant="ghost" size="sm" onClick={() => handleDelete(p.value)} title="Remove">
+                              <Button variant="ghost" size="sm" onClick={() => handleDelete(p.value)} title="Remove credential">
                                 <Trash2 className="h-3.5 w-3.5 text-destructive" />
                               </Button>
                             </>
@@ -387,6 +458,16 @@ export function ProvidersContent({ showHeader = true }: ProvidersContentProps) {
                             <Button size="sm" onClick={() => handleConfigure(p.value)} disabled={disableConfigButtons}>
                               <Key className="h-3.5 w-3.5" />
                               Configure
+                            </Button>
+                          )}
+                          {editMode && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleHideProviderFromView(p.value)}
+                              title="Hide from this list (does not delete the credential)"
+                            >
+                              <EyeOff className="h-3.5 w-3.5" />
                             </Button>
                           )}
                         </div>
@@ -439,7 +520,7 @@ export function ProvidersContent({ showHeader = true }: ProvidersContentProps) {
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {PROVIDERS.map((p) => {
+          {visibleProviders.map((p) => {
             const cred = credentials.find((c) => c.provider === p.value);
             const isConnected = !!cred?.isActive;
             const isConfiguring = configuring === p.value;
@@ -571,12 +652,37 @@ export function ProvidersContent({ showHeader = true }: ProvidersContentProps) {
                         Configure
                       </Button>
                     )}
+                    {editMode && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleHideProviderFromView(p.value)}
+                        title="Hide from this list"
+                      >
+                        <EyeOff className="h-3.5 w-3.5" />
+                        Hide
+                      </Button>
+                    )}
                   </div>
                 )}
               </Card>
             );
           })}
         </div>
+      )}
+
+      {visibleProviders.length === 0 && !loading && (
+        <Card className="p-8 text-center">
+          <EyeOff className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
+          <p className="text-sm font-medium">No providers in your list</p>
+          <p className="text-xs text-muted-foreground mt-1 mb-4">
+            You&apos;ve hidden every provider from view. Add some back to start configuring.
+          </p>
+          <Button size="sm" onClick={() => setShowAddModal(true)}>
+            <Plus className="h-3.5 w-3.5" />
+            Add a provider
+          </Button>
+        </Card>
       )}
 
       <RequestedIntegrationsSection />
@@ -586,6 +692,63 @@ export function ProvidersContent({ showHeader = true }: ProvidersContentProps) {
         onClose={() => setMappingProvider(null)}
         provider={mappingProvider ?? ""}
       />
+
+      {showAddModal && (
+        <Modal
+          open={showAddModal}
+          onClose={() => setShowAddModal(false)}
+          title="Add a provider to your list"
+        >
+          <div className="px-6 py-5 space-y-3 text-sm">
+            {hiddenProviders.length === 0 ? (
+              <p className="text-muted-foreground">
+                Every supported provider is already showing in your list. If you need a brand
+                new integration that Tokenear doesn&apos;t ship yet, run{" "}
+                <Link href="/dashboard/providers/discovery" className="text-brand hover:underline" onClick={() => setShowAddModal(false)}>
+                  Discovery
+                </Link>{" "}
+                with the API key — successful probes for unsupported providers can be added to
+                your requested-integrations list.
+              </p>
+            ) : (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  Pick a provider to add it back to your Configured providers list. This is a
+                  view preference only — adding a provider here doesn&apos;t configure or store
+                  any credentials.
+                </p>
+                <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
+                  {hiddenProviders.map((p) => (
+                    <button
+                      key={p.value}
+                      type="button"
+                      onClick={() => {
+                        handleAddProviderToView(p.value);
+                        if (hiddenProviders.length === 1) setShowAddModal(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border border-border hover:border-brand hover:bg-brand/5 text-left transition-colors"
+                    >
+                      <div className="rounded-md bg-muted p-1.5">
+                        <Plug className="h-3.5 w-3.5 text-muted-foreground" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{p.label}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">{p.hint}</p>
+                      </div>
+                      <Plus className="h-4 w-4 text-muted-foreground" />
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+            <div className="flex items-center justify-end pt-2 border-t border-border">
+              <Button variant="ghost" size="sm" onClick={() => setShowAddModal(false)}>
+                Done
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

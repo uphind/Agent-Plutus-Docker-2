@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +13,7 @@ import {
 import type { FieldDef } from "@/lib/providers/field-definitions";
 import {
   GripVertical, ArrowRight, Check, Trash2, RotateCcw, Wand2,
-  Download, AlertTriangle,
+  Download, AlertTriangle, Radar,
 } from "lucide-react";
 import { PROVIDER_LABELS } from "@/lib/utils";
 
@@ -22,13 +22,34 @@ interface Mapping {
   targetField: string;
 }
 
+/**
+ * One endpoint's worth of discovered shape, passed in by the Discovery page so
+ * the modal can show real fields + sample values without re-hitting the API.
+ */
+export interface DiscoveredEndpoint {
+  id: string;
+  apiName: string;
+  endpointName: string;
+  /** Leaf-only dotted paths (e.g. "data[].results[].model"). */
+  fields: string[];
+  /** Full parsed response body — used for per-field sample value lookups. */
+  body: unknown;
+}
+
 interface Props {
   open: boolean;
   onClose: () => void;
   provider: string;
+  /**
+   * Optional list of endpoints that returned data during discovery. When
+   * provided the modal shows an endpoint pill picker on the source side and
+   * lists the live discovered fields (with sample values) instead of (or in
+   * addition to) the static built-in defaults.
+   */
+  discoveredEndpoints?: DiscoveredEndpoint[];
 }
 
-export function ProviderFieldMappingModal({ open, onClose, provider }: Props) {
+export function ProviderFieldMappingModal({ open, onClose, provider, discoveredEndpoints }: Props) {
   const [sourceFields, setSourceFields] = useState<FieldDef[]>([]);
   const [mappings, setMappings] = useState<Mapping[]>([]);
   const [draggedField, setDraggedField] = useState<string | null>(null);
@@ -42,6 +63,28 @@ export function ProviderFieldMappingModal({ open, onClose, provider }: Props) {
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [hasFetched, setHasFetched] = useState(false);
+
+  // When opened from Discovery: pick the first discovered endpoint by default
+  // and let the user switch between them via the pill bar.
+  const [activeDiscoveredId, setActiveDiscoveredId] = useState<string | null>(
+    discoveredEndpoints && discoveredEndpoints.length > 0 ? discoveredEndpoints[0].id : null
+  );
+
+  useEffect(() => {
+    if (discoveredEndpoints && discoveredEndpoints.length > 0) {
+      setActiveDiscoveredId((prev) => prev ?? discoveredEndpoints[0].id);
+    } else {
+      setActiveDiscoveredId(null);
+    }
+  }, [discoveredEndpoints]);
+
+  const activeDiscovered = useMemo(
+    () =>
+      discoveredEndpoints?.find((d) => d.id === activeDiscoveredId) ??
+      discoveredEndpoints?.[0] ??
+      null,
+    [discoveredEndpoints, activeDiscoveredId]
+  );
 
   const label = PROVIDER_LABELS[provider] ?? provider;
 
@@ -189,6 +232,46 @@ export function ProviderFieldMappingModal({ open, onClose, provider }: Props) {
     return JSON.stringify(v).slice(0, 30);
   }
 
+  /**
+   * Discovered fields use full dotted paths (e.g. `data[].results[].model`).
+   * The internal adapters and the existing static field definitions expect
+   * the leaf segment (`model`, `cache_creation.ephemeral_1h_input_tokens`,
+   * etc.) — so when the user maps a discovered field we save the leaf form.
+   *
+   * For nested-but-non-array dotted leaves like
+   * `data[].results[].cache_creation.ephemeral_1h_input_tokens` we strip the
+   * array container prefix but keep any trailing dotted nesting (since some
+   * existing source field definitions use the latter shape).
+   */
+  function discoveredPathToMappingKey(fullPath: string): string {
+    // Drop everything up to and including the last `[]` segment.
+    const lastArrayIdx = fullPath.lastIndexOf("[]");
+    const leaf = lastArrayIdx >= 0 ? fullPath.slice(lastArrayIdx + 3) : fullPath;
+    return leaf || fullPath;
+  }
+
+  /**
+   * Walk the parsed response body using the dotted path (with `[]` markers)
+   * to extract the first available sample value.
+   */
+  function lookupSampleAt(body: unknown, path: string): unknown {
+    if (body === null || body === undefined) return undefined;
+    const parts = path.split(".").flatMap((p) => (p.endsWith("[]") ? [p.slice(0, -2), "[]"] : [p]));
+    let cur: unknown = body;
+    for (const part of parts) {
+      if (cur === null || cur === undefined) return undefined;
+      if (part === "[]") {
+        if (Array.isArray(cur)) cur = cur[0];
+        else return undefined;
+      } else if (typeof cur === "object") {
+        cur = (cur as Record<string, unknown>)[part];
+      } else {
+        return undefined;
+      }
+    }
+    return cur;
+  }
+
   return (
     <Modal
       open={open}
@@ -259,7 +342,106 @@ export function ProviderFieldMappingModal({ open, onClose, provider }: Props) {
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
                 {label} API Fields
               </p>
+
+              {/* Endpoint pill bar — only shown when discoveredEndpoints were
+                  passed in (i.e. the modal was opened from Discovery). Lets
+                  the user switch between the response shape of each endpoint
+                  that successfully returned data. */}
+              {discoveredEndpoints && discoveredEndpoints.length > 0 && (
+                <div className="mb-3">
+                  <div className="flex items-center gap-1.5 mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <Radar className="h-3 w-3" />
+                    Live discovered endpoints ({discoveredEndpoints.length})
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {discoveredEndpoints.map((d) => {
+                      const isActive = activeDiscoveredId === d.id || (!activeDiscoveredId && discoveredEndpoints[0].id === d.id);
+                      return (
+                        <button
+                          key={d.id}
+                          type="button"
+                          onClick={() => setActiveDiscoveredId(d.id)}
+                          className={`text-[11px] px-2 py-1 rounded-md border transition-all ${
+                            isActive
+                              ? "border-brand bg-brand/5 text-foreground font-medium"
+                              : "border-border bg-card text-muted-foreground hover:border-muted-foreground/50"
+                          }`}
+                          title={`${d.apiName} · ${d.endpointName}`}
+                        >
+                          {d.endpointName}
+                          <span className="text-muted-foreground ml-1">({d.fields.length})</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-1.5 max-h-[400px] overflow-y-auto pr-1">
+                {/* Live discovered fields for the active endpoint (when present) */}
+                {activeDiscovered && activeDiscovered.fields.length > 0 && (
+                  <>
+                    <div className="flex items-center gap-1.5 px-1 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sticky top-0 bg-card/95 backdrop-blur-sm z-[1]">
+                      <span className="font-mono text-foreground/70">{activeDiscovered.apiName}</span>
+                      <span className="text-foreground/30">·</span>
+                      <span>{activeDiscovered.endpointName}</span>
+                    </div>
+                    {activeDiscovered.fields.map((path) => {
+                      const mappingKey = discoveredPathToMappingKey(path);
+                      const mapped = isMapped(mappingKey);
+                      const isSelected = selectedSource === mappingKey;
+                      const sample = lookupSampleAt(activeDiscovered.body, path);
+                      const hasSample = sample !== undefined && sample !== null;
+                      return (
+                        <div
+                          key={`disc-${path}`}
+                          draggable
+                          onDragStart={() => handleDragStart(mappingKey)}
+                          onClick={() => handleSourceClick(mappingKey)}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-all ${
+                            isSelected
+                              ? "border-brand bg-brand/5 ring-1 ring-brand cursor-pointer"
+                              : mapped
+                              ? "border-emerald-200 bg-emerald-50/50 cursor-grab"
+                              : "border-border hover:border-muted-foreground/50 cursor-grab"
+                          }`}
+                          title={path}
+                        >
+                          <GripVertical className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="font-mono text-xs truncate">{mappingKey}</span>
+                              <Badge variant="outline" className="text-[9px] py-0 px-1 shrink-0">live</Badge>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground truncate font-mono" title={path}>
+                              {path}
+                            </p>
+                            {hasSample ? (
+                              <p className="text-[10px] text-muted-foreground truncate" title={String(sample)}>
+                                <span className="text-foreground/60">= </span>
+                                {formatSampleValue(sample)}
+                              </p>
+                            ) : (
+                              <p className="text-[10px] text-muted-foreground/50 italic">null in sample</p>
+                            )}
+                          </div>
+                          {mapped && <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" />}
+                        </div>
+                      );
+                    })}
+
+                    {/* Visual divider before the static defaults */}
+                    {sourceFields.length > 0 && (
+                      <div className="flex items-center gap-2 px-1 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                        <div className="h-px flex-1 bg-border" />
+                        <span>Built-in field definitions</span>
+                        <div className="h-px flex-1 bg-border" />
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Static / built-in source fields (always shown) */}
                 {sourceFields.map((sf) => {
                   const mapped = isMapped(sf.key);
                   const isSelected = selectedSource === sf.key;

@@ -14,6 +14,12 @@ import { api } from "@/lib/dashboard-api";
 import { buildSchemaTemplate } from "@/lib/providers/discovery-catalog";
 import { useRequestedIntegrations } from "@/lib/requested-integrations";
 import {
+  useDiscoveryHistory,
+  formatKeyHint,
+  describeSessionSuccess,
+  type DiscoverySession,
+} from "@/lib/discovery-history";
+import {
   Radar,
   Eye,
   EyeOff,
@@ -34,6 +40,10 @@ import {
   Hourglass,
   StopCircle,
   Sparkles,
+  History as HistoryIcon,
+  Trash2,
+  Filter,
+  X,
 } from "lucide-react";
 
 type ProbeStatus =
@@ -144,6 +154,17 @@ export default function DiscoveryPage() {
     [requestedItems]
   );
 
+  // Recent-searches history. Auto-restored on mount; updated when a stream
+  // completes; manipulated via the right-hand sidebar.
+  const { sessions, save: saveSession, remove: removeSession, clearAll: clearHistory } =
+    useDiscoveryHistory();
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+
+  // Status filter — clicking a summary badge narrows the result list to that
+  // status. "all" means no filter.
+  type StatusFilter = ProbeStatus | "all";
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+
   const abortRef = useRef<AbortController | null>(null);
 
   const handleStop = useCallback(() => {
@@ -152,6 +173,44 @@ export default function DiscoveryPage() {
 
   // Make sure we abort the stream if the user navigates away mid-discovery.
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  /**
+   * Load a previously-stored session into the page so the user can review or
+   * re-export results without re-running discovery. Mappings/credentials in
+   * the database are NOT touched — this is purely UI state restoration.
+   */
+  const restoreSession = useCallback((session: DiscoverySession) => {
+    setRunning(false);
+    setError(null);
+    setKeyHint(session.keyHint);
+    setDetectionHint(session.detectionHint);
+    setContextEcho({ ...(session.context ?? {}) } as Record<string, string | undefined>);
+    setResults(session.results as ProbeResult[]);
+    setTotalCount(session.totalCount);
+    setCompletedCount(session.completedCount);
+    setActiveSessionId(session.id);
+    setExpanded({});
+    setStatusFilter("all");
+    setAutoExpandFirstSuccess(false);
+    setSavedProviders({});
+  }, []);
+
+  // On first paint, auto-restore the most recent saved session — that's what
+  // makes "leave and come back" work without forcing the user to re-enter
+  // their key. We only do this once, and only if results haven't already
+  // been populated (e.g. by a fresh run).
+  const hasAutoRestoredRef = useRef(false);
+  useEffect(() => {
+    if (hasAutoRestoredRef.current) return;
+    if (running || results.length > 0) {
+      hasAutoRestoredRef.current = true;
+      return;
+    }
+    if (sessions.length > 0) {
+      hasAutoRestoredRef.current = true;
+      restoreSession(sessions[0]);
+    }
+  }, [sessions, running, results.length, restoreSession]);
 
   const handleRun = async () => {
     if (!keyInput.trim()) return;
@@ -166,9 +225,17 @@ export default function DiscoveryPage() {
     setExpanded({});
     setSavedProviders({});
     setAutoExpandFirstSuccess(true);
+    setStatusFilter("all");
+
+    const sessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const startedAt = new Date().toISOString();
+    setActiveSessionId(sessionId);
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+    // Capturing detection hint outside of the try block so the finally clause
+    // (where we persist the session) can read it after the stream finishes.
+    let detectionHintForSave = "";
 
     try {
       const res = await fetch("/api/v1/providers/discovery", {
@@ -213,6 +280,7 @@ export default function DiscoveryPage() {
           if (event.type === "init") {
             setKeyHint(event.keyHint);
             setDetectionHint(event.detection.hint);
+            detectionHintForSave = event.detection.hint;
             setContextEcho(event.context ?? {});
             setTotalCount(event.endpoints.length);
             setResults(
@@ -251,6 +319,44 @@ export default function DiscoveryPage() {
     } finally {
       setRunning(false);
       abortRef.current = null;
+      // Snapshot the just-finished session into history. We use the functional
+      // setResults below to capture the latest results array atomically (state
+      // updates above were async); persist the session and re-emit the same
+      // results unchanged so the UI doesn't flicker.
+      setResults((finalResults) => {
+        if (finalResults.length === 0) return finalResults;
+        const session: DiscoverySession = {
+          id: sessionId,
+          keyHint: formatKeyHint(keyInput.trim()),
+          detectionHint: detectionHintForSave,
+          context: {
+            githubOrg: githubOrg.trim() || undefined,
+            githubEnterprise: githubEnterprise.trim() || undefined,
+            n8nBaseUrl: n8nBaseUrl.trim() || undefined,
+            vertexProjectId: vertexProjectId.trim() || undefined,
+            vertexLocation: vertexLocation.trim() || undefined,
+          },
+          summary: {
+            attempted: finalResults.length,
+            ok: finalResults.filter((r) => r.status === "ok").length,
+            noData: finalResults.filter((r) => r.status === "no_data").length,
+            authFailed: finalResults.filter((r) => r.status === "auth_failed").length,
+            notFound: finalResults.filter((r) => r.status === "not_found").length,
+            rateLimited: finalResults.filter((r) => r.status === "rate_limited").length,
+            skipped: finalResults.filter((r) => r.status === "skipped").length,
+            errored: finalResults.filter((r) => r.status === "error").length,
+          },
+          results: finalResults.map((r) => ({ ...r })) as DiscoverySession["results"],
+          totalCount: finalResults.length,
+          completedCount: finalResults.filter((r) => r.status !== "pending").length,
+          startedAt,
+          completedAt: new Date().toISOString(),
+        };
+        // Defer the save out of the setState callback so we never run into
+        // "setState during render" warnings.
+        setTimeout(() => saveSession(session), 0);
+        return finalResults;
+      });
     }
   };
 
@@ -262,9 +368,15 @@ export default function DiscoveryPage() {
     [results]
   );
 
+  // Apply the status filter (clicking a summary badge narrows to that status).
+  const filteredResults = useMemo(() => {
+    if (statusFilter === "all") return results;
+    return results.filter((r) => r.status === statusFilter);
+  }, [results, statusFilter]);
+
   const groupedResults = useMemo(() => {
     const groups = new Map<string, { provider: string; providerLabel: string; results: ProbeResult[] }>();
-    for (const r of results) {
+    for (const r of filteredResults) {
       let g = groups.get(r.provider);
       if (!g) {
         g = { provider: r.provider, providerLabel: r.providerLabel, results: [] };
@@ -291,7 +403,7 @@ export default function DiscoveryPage() {
       });
     }
     return [...groups.values()];
-  }, [results]);
+  }, [filteredResults]);
 
   const summary = useMemo(() => {
     const counters = { ok: 0, noData: 0, authFailed: 0, notFound: 0, rateLimited: 0, skipped: 0, errored: 0, pending: 0 };
@@ -438,35 +550,74 @@ export default function DiscoveryPage() {
         </Card>
       )}
 
-      {(running || results.length > 0) && (
-        <SummaryCard
-          keyHint={keyHint}
-          detectionHint={detectionHint}
-          contextEcho={contextEcho}
-          summary={summary}
-          completed={completedCount}
-          total={totalCount}
-          running={running}
-          onExportAll={handleExportAll}
-          successCount={successResults.length}
-        />
-      )}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
+        {/* Main column: summary + filter banner + results */}
+        <div className="space-y-5 min-w-0">
+          {(running || results.length > 0) && (
+            <SummaryCard
+              keyHint={keyHint}
+              detectionHint={detectionHint}
+              contextEcho={contextEcho}
+              summary={summary}
+              completed={completedCount}
+              total={totalCount}
+              running={running}
+              onExportAll={handleExportAll}
+              successCount={successResults.length}
+              successResults={successResults}
+              statusFilter={statusFilter}
+              onSetStatusFilter={setStatusFilter}
+            />
+          )}
 
-      <div className="space-y-5">
-        {groupedResults.map((group) => (
-          <ProviderGroup
-            key={group.provider}
-            providerLabel={group.providerLabel}
-            results={group.results}
-            expanded={expanded}
-            onToggle={toggle}
-            apiKey={keyInput.trim()}
-            savedProviders={savedProviders}
-            onSaveProvider={handleSaveProvider}
-            requestedSet={requestedSet}
-            onRequestIntegration={(r) => setPendingPrompt(r)}
+          {statusFilter !== "all" && (
+            <Card className="px-4 py-3 flex items-center justify-between bg-muted/40">
+              <div className="flex items-center gap-2 text-xs">
+                <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+                <span>
+                  Filtering by{" "}
+                  <span className="font-semibold">{STATUS_META[statusFilter as Exclude<ProbeStatus, "pending">]?.label ?? statusFilter}</span>
+                  {" "}— showing {filteredResults.length} of {results.length} endpoints.
+                </span>
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => setStatusFilter("all")}>
+                <X className="h-3.5 w-3.5" /> Clear filter
+              </Button>
+            </Card>
+          )}
+
+          {results.length > 0 && filteredResults.length === 0 && (
+            <Card className="p-6 text-center text-sm text-muted-foreground">
+              No endpoints match the current filter.
+            </Card>
+          )}
+
+          {groupedResults.map((group) => (
+            <ProviderGroup
+              key={group.provider}
+              providerLabel={group.providerLabel}
+              results={group.results}
+              expanded={expanded}
+              onToggle={toggle}
+              apiKey={keyInput.trim()}
+              savedProviders={savedProviders}
+              onSaveProvider={handleSaveProvider}
+              requestedSet={requestedSet}
+              onRequestIntegration={(r) => setPendingPrompt(r)}
+            />
+          ))}
+        </div>
+
+        {/* Right rail: recent searches history */}
+        <aside className="lg:sticky lg:top-4">
+          <HistorySidebar
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            onPick={restoreSession}
+            onDelete={removeSession}
+            onClearAll={clearHistory}
           />
-        ))}
+        </aside>
       </div>
 
       {!running && successResults.length > 0 && (
@@ -494,6 +645,15 @@ export default function DiscoveryPage() {
           open={!!mappingProvider}
           onClose={() => setMappingProvider(null)}
           provider={mappingProvider}
+          discoveredEndpoints={successResults
+            .filter((r) => r.internalProvider === mappingProvider && r.fields && r.fields.length > 0)
+            .map((r) => ({
+              id: r.id,
+              apiName: r.apiName,
+              endpointName: r.endpointName,
+              fields: r.fields ?? [],
+              body: r.body,
+            }))}
         />
       )}
 
@@ -572,6 +732,9 @@ function SummaryCard({
   running,
   onExportAll,
   successCount,
+  successResults,
+  statusFilter,
+  onSetStatusFilter,
 }: {
   keyHint: string | null;
   detectionHint: string | null;
@@ -582,7 +745,27 @@ function SummaryCard({
   running: boolean;
   onExportAll: () => void;
   successCount: number;
+  successResults: ProbeResult[];
+  statusFilter: ProbeStatus | "all";
+  onSetStatusFilter: (next: ProbeStatus | "all") => void;
 }) {
+  const toggleFilter = (status: ProbeStatus) => {
+    onSetStatusFilter(statusFilter === status ? "all" : status);
+  };
+  // Group successful results by provider so the summary can show
+  // "Anthropic — Admin API · Cost Report, Admin API · Workspaces, …".
+  const successByProvider = useMemo(() => {
+    const groups = new Map<string, { providerLabel: string; entries: ProbeResult[] }>();
+    for (const r of successResults) {
+      let g = groups.get(r.provider);
+      if (!g) {
+        g = { providerLabel: r.providerLabel, entries: [] };
+        groups.set(r.provider, g);
+      }
+      g.entries.push(r);
+    }
+    return [...groups.values()];
+  }, [successResults]);
   const ctxBits = Object.entries(contextEcho)
     .filter(([, v]) => !!v)
     .map(([k, v]) => `${k}=${v}`)
@@ -599,13 +782,13 @@ function SummaryCard({
           {ctxBits && <p className="text-[10px] text-muted-foreground mt-1 font-mono">{ctxBits}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <SummaryBadge label="OK" count={summary.ok} variant="success" />
-          <SummaryBadge label="Empty" count={summary.noData} variant="info" />
-          <SummaryBadge label="Auth failed" count={summary.authFailed} variant="error" />
-          <SummaryBadge label="404" count={summary.notFound} variant="warning" />
-          <SummaryBadge label="Rate limited" count={summary.rateLimited} variant="warning" />
-          <SummaryBadge label="Skipped" count={summary.skipped} variant="outline" />
-          <SummaryBadge label="Errored" count={summary.errored} variant="error" />
+          <SummaryBadge label="OK" count={summary.ok} variant="success" active={statusFilter === "ok"} onClick={() => toggleFilter("ok")} />
+          <SummaryBadge label="Empty" count={summary.noData} variant="info" active={statusFilter === "no_data"} onClick={() => toggleFilter("no_data")} />
+          <SummaryBadge label="Auth failed" count={summary.authFailed} variant="error" active={statusFilter === "auth_failed"} onClick={() => toggleFilter("auth_failed")} />
+          <SummaryBadge label="404" count={summary.notFound} variant="warning" active={statusFilter === "not_found"} onClick={() => toggleFilter("not_found")} />
+          <SummaryBadge label="Rate limited" count={summary.rateLimited} variant="warning" active={statusFilter === "rate_limited"} onClick={() => toggleFilter("rate_limited")} />
+          <SummaryBadge label="Skipped" count={summary.skipped} variant="outline" active={statusFilter === "skipped"} onClick={() => toggleFilter("skipped")} />
+          <SummaryBadge label="Errored" count={summary.errored} variant="error" active={statusFilter === "error"} onClick={() => toggleFilter("error")} />
           {running && <SummaryBadge label="Pending" count={summary.pending} variant="info" />}
         </div>
       </div>
@@ -634,6 +817,43 @@ function SummaryCard({
         </div>
       </div>
 
+      {successByProvider.length > 0 && (
+        <div className="pt-3 mt-3 border-t border-border space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Successful endpoints
+          </p>
+          <div className="space-y-2">
+            {successByProvider.map((group) => (
+              <div key={group.providerLabel} className="rounded-md border border-emerald-200 bg-emerald-50/40 px-3 py-2">
+                <p className="text-xs font-semibold text-emerald-900 mb-1.5">
+                  {group.providerLabel}
+                  <span className="text-emerald-700 font-normal ml-1.5">
+                    ({group.entries.length} endpoint{group.entries.length === 1 ? "" : "s"})
+                  </span>
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {group.entries.map((r) => (
+                    <span
+                      key={r.id}
+                      className="inline-flex items-center gap-1.5 rounded border border-emerald-300 bg-card px-2 py-0.5 text-[11px]"
+                      title={`${r.apiName} · ${r.endpointName}`}
+                    >
+                      <CheckCircle className="h-2.5 w-2.5 text-emerald-600" />
+                      <span className="text-muted-foreground">{r.apiName}</span>
+                      <span className="text-foreground/40">·</span>
+                      <span className="font-medium">{r.endpointName}</span>
+                      {r.fields && (
+                        <span className="text-muted-foreground">· {r.fields.length} fields</span>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {successCount > 0 && (
         <div className="flex items-center justify-end pt-3 mt-3 border-t border-border">
           <Button size="sm" variant="secondary" onClick={onExportAll}>
@@ -650,15 +870,32 @@ function SummaryBadge({
   label,
   count,
   variant,
+  active,
+  onClick,
 }: {
   label: string;
   count: number;
   variant: "success" | "warning" | "error" | "info" | "outline";
+  active?: boolean;
+  onClick?: () => void;
 }) {
+  const effectiveVariant = count > 0 ? variant : "outline";
+  if (!onClick) {
+    return <Badge variant={effectiveVariant}>{label}: {count}</Badge>;
+  }
   return (
-    <Badge variant={count > 0 ? variant : "outline"}>
-      {label}: {count}
-    </Badge>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={count === 0}
+      className={`focus:outline-none focus:ring-2 focus:ring-ring rounded-full transition-all ${
+        count === 0 ? "cursor-not-allowed opacity-60" : "hover:scale-[1.03]"
+      } ${active ? "ring-2 ring-foreground/40 ring-offset-1" : ""}`}
+      title={count > 0 ? `Filter to ${label}` : `No ${label.toLowerCase()} results`}
+      aria-pressed={!!active}
+    >
+      <Badge variant={effectiveVariant}>{label}: {count}</Badge>
+    </button>
   );
 }
 
@@ -991,6 +1228,113 @@ function ResultCard({
           )}
         </div>
       )}
+    </Card>
+  );
+}
+
+function HistorySidebar({
+  sessions,
+  activeSessionId,
+  onPick,
+  onDelete,
+  onClearAll,
+}: {
+  sessions: DiscoverySession[];
+  activeSessionId: string | null;
+  onPick: (s: DiscoverySession) => void;
+  onDelete: (id: string) => void;
+  onClearAll: () => void;
+}) {
+  return (
+    <Card className="p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <HistoryIcon className="h-3.5 w-3.5 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Recent searches</h3>
+        </div>
+        {sessions.length > 0 && (
+          <button
+            type="button"
+            onClick={onClearAll}
+            className="text-[10px] uppercase tracking-wider text-muted-foreground hover:text-destructive transition-colors"
+            title="Clear all (saved provider mappings stay intact)"
+          >
+            Clear all
+          </button>
+        )}
+      </div>
+
+      {sessions.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Past discovery runs will appear here. They&apos;re stored locally in your browser
+          (key hint only — never the raw key) and survive across reloads.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {sessions.map((s) => {
+            const isActive = s.id === activeSessionId;
+            const subtitle = describeSessionSuccess(s);
+            const successCount = s.summary.ok + s.summary.noData;
+            return (
+              <div
+                key={s.id}
+                className={`group rounded-lg border transition-all ${
+                  isActive
+                    ? "border-brand bg-brand/5 ring-1 ring-brand/40"
+                    : "border-border hover:border-muted-foreground/40"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => onPick(s)}
+                  className="w-full text-left px-3 py-2.5"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-mono text-xs font-medium truncate">{s.keyHint || "(empty)"}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 truncate" title={subtitle}>
+                        {subtitle}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        {successCount > 0 && (
+                          <span className="text-emerald-700 font-medium">
+                            {successCount} responding
+                          </span>
+                        )}
+                        {successCount > 0 && " · "}
+                        {new Date(s.completedAt ?? s.startedAt).toLocaleString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(s.id);
+                      }}
+                      className="text-muted-foreground hover:text-destructive transition-colors p-1 -m-1 opacity-0 group-hover:opacity-100"
+                      title="Delete from history (saved provider mappings stay intact)"
+                      aria-label="Delete from history"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">
+        Deleting a search only removes it from this list. Provider credentials
+        and field mappings you saved on the Providers tab stay intact until you
+        explicitly remove them or save a different mapping.
+      </p>
     </Card>
   );
 }

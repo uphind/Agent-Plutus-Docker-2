@@ -1759,8 +1759,21 @@ export function redactKey(rawKey: string): string {
 
 const MAX_FIELD_DEPTH = 5;
 
+/**
+ * Walks the parsed response and returns ONLY leaf field paths — i.e. paths
+ * that resolve to a primitive, null, an empty array, or an empty object.
+ *
+ * Why leaves only? Earlier versions also emitted intermediate container paths
+ * (e.g. `data`, `data[].results`) which are useful for understanding the
+ * shape but inflate the field count and don't represent values you'd map to
+ * an internal target column. The full nested structure is still recoverable
+ * from the schema template returned by `buildSchemaTemplate`.
+ */
 export function extractFields(value: unknown, prefix = "", depth = 0, out: Set<string> = new Set()): string[] {
-  if (depth > MAX_FIELD_DEPTH) return [...out];
+  if (depth > MAX_FIELD_DEPTH) {
+    if (prefix) out.add(prefix);
+    return [...out];
+  }
   if (value === null || value === undefined) {
     if (prefix) out.add(prefix);
     return [...out];
@@ -1774,9 +1787,14 @@ export function extractFields(value: unknown, prefix = "", depth = 0, out: Set<s
     return [...out];
   }
   if (typeof value === "object") {
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) {
+      // Empty object — treat as a leaf so it shows up in the field list.
+      if (prefix) out.add(prefix);
+      return [...out];
+    }
+    for (const [k, v] of entries) {
       const next = prefix ? `${prefix}.${k}` : k;
-      out.add(next);
       extractFields(v, next, depth + 1, out);
     }
     return [...out];
