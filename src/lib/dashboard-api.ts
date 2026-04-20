@@ -275,6 +275,8 @@ export const api = {
     n8n_base_url?: string;
     vertex_project_id?: string;
     vertex_location?: string;
+    providers?: string[];
+    internal_providers?: string[];
   }) =>
     apiFetch("/providers/discovery", {
       method: "POST",

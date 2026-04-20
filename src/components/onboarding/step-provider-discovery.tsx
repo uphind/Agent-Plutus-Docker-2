@@ -4,9 +4,12 @@ import { useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plug, Eye, EyeOff, Loader2, Radar, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
+import {
+  Plug, Eye, EyeOff, Loader2, Radar, CheckCircle, XCircle, AlertTriangle, Sparkles, SkipForward,
+} from "lucide-react";
 import { api } from "@/lib/dashboard-api";
-import { PROVIDER_LABELS } from "@/lib/utils";
+import { addRequestedIntegration } from "@/lib/requested-integrations";
+import type { ProviderSelection } from "./step-select-providers";
 import type { DiscoveredEndpointSummary } from "./wizard";
 
 interface ProbeResult {
@@ -28,10 +31,31 @@ interface InitEvent { type: "init"; keyHint: string; endpoints: ProbeResult[] }
 interface ResultEvent { type: "result"; result: ProbeResult }
 interface DoneEvent { type: "done" }
 
-export function StepAddProvider({
+export interface ProviderDiscoveryResult {
+  internalProvider: string;
+  discoveredEndpoints: DiscoveredEndpointSummary[];
+  apiKey: string;
+}
+
+/**
+ * Per-provider Discovery step. Differs from the standalone Discovery page:
+ *
+ *   - The Discovery POST is FILTERED to only this provider's endpoints, so
+ *     the probe completes in seconds instead of the full ~87-endpoint sweep.
+ *   - Empty-result and unsupported-internal-provider paths are first-class:
+ *     the user always has a path forward (continue / skip / request).
+ */
+export function StepProviderDiscovery({
+  selection,
   onNext,
+  onSkip,
+  positionLabel,
 }: {
-  onNext: (args: { internalProvider: string; discoveredEndpoints: DiscoveredEndpointSummary[]; apiKey: string }) => void;
+  selection: ProviderSelection;
+  onNext: (result: ProviderDiscoveryResult) => void;
+  onSkip: () => void;
+  /** "Provider 2 of 4" — purely informational. */
+  positionLabel?: string;
 }) {
   const [keyInput, setKeyInput] = useState("");
   const [showKey, setShowKey] = useState(false);
@@ -41,23 +65,14 @@ export function StepAddProvider({
   const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [keyHint, setKeyHint] = useState<string | null>(null);
-  const [chosenProvider, setChosenProvider] = useState<string | null>(null);
+  const [requestedAlready, setRequestedAlready] = useState(false);
   const [savingProvider, setSavingProvider] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
 
   const successResults = results.filter((r) => r.status === "ok" || r.status === "no_data");
-  const successByProvider = new Map<string, { providerLabel: string; results: ProbeResult[]; internalProvider?: string }>();
-  for (const r of successResults) {
-    let group = successByProvider.get(r.provider);
-    if (!group) {
-      group = { providerLabel: r.providerLabel, results: [], internalProvider: r.internalProvider };
-      successByProvider.set(r.provider, group);
-    }
-    group.results.push(r);
-    if (!group.internalProvider && r.internalProvider) group.internalProvider = r.internalProvider;
-  }
+  const noResultsAfterRun = !running && total > 0 && successResults.length === 0;
 
   const handleRun = async () => {
     if (!keyInput.trim()) return;
@@ -67,8 +82,8 @@ export function StepAddProvider({
     setCompleted(0);
     setTotal(0);
     setKeyHint(null);
-    setChosenProvider(null);
     setSaveError(null);
+    setRequestedAlready(false);
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -77,7 +92,13 @@ export function StepAddProvider({
       const res = await fetch("/api/v1/providers/discovery", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ api_key: keyInput.trim() }),
+        body: JSON.stringify({
+          api_key: keyInput.trim(),
+          providers:
+            selection.discoveryProviderIds.length > 0
+              ? selection.discoveryProviderIds
+              : undefined,
+        }),
         signal: ctrl.signal,
       });
       if (!res.ok || !res.body) {
@@ -121,21 +142,27 @@ export function StepAddProvider({
     }
   };
 
-  const handleConfirm = async () => {
-    if (!chosenProvider) return;
-    const group = successByProvider.get(chosenProvider);
-    if (!group?.internalProvider) {
-      setSaveError("This provider doesn't have a sync adapter yet. You can request it from the Discovery page.");
+  const handleConfirmAndContinue = async () => {
+    // Pick an internalProvider — prefer the selection's, fall back to the
+    // first successful result's. (The "Other" tile uses the latter.)
+    const internal =
+      selection.internalProvider ??
+      successResults.find((r) => r.internalProvider)?.internalProvider ??
+      null;
+
+    if (!internal) {
+      setSaveError("This provider doesn't have a sync adapter yet — use the Request integration button instead.");
       return;
     }
+
     setSavingProvider(true);
     setSaveError(null);
     try {
-      // Save the credential against the internal provider type.
-      const label = `${group.providerLabel} · ${group.results[0].apiName}`;
-      await api.addProvider(group.internalProvider, keyInput.trim(), label);
-      // Pass the matching successful endpoints into the next step (mapping).
-      const endpoints: DiscoveredEndpointSummary[] = group.results
+      const sample = successResults[0];
+      const label = `${sample?.providerLabel ?? selection.label} · ${sample?.apiName ?? "Discovery"}`;
+      await api.addProvider(internal, keyInput.trim(), label);
+      const endpoints: DiscoveredEndpointSummary[] = successResults
+        .filter((r) => (r.internalProvider ?? null) === internal)
         .filter((r) => r.fields && r.fields.length > 0)
         .map((r) => ({
           id: r.id,
@@ -145,7 +172,7 @@ export function StepAddProvider({
           body: r.body,
         }));
       onNext({
-        internalProvider: group.internalProvider,
+        internalProvider: internal,
         discoveredEndpoints: endpoints,
         apiKey: keyInput.trim(),
       });
@@ -156,22 +183,47 @@ export function StepAddProvider({
     }
   };
 
+  const handleRequestIntegration = () => {
+    addRequestedIntegration({
+      provider: selection.id,
+      providerLabel: selection.label,
+      apiName: successResults[0]?.apiName,
+      endpointName: successResults[0]?.endpointName,
+      keyHint: keyHint ?? undefined,
+      requestedAt: new Date().toISOString(),
+    });
+    setRequestedAlready(true);
+  };
+
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
 
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center gap-2">
-          <Plug className="h-4 w-4 text-muted-foreground" />
-          <CardTitle>Add your first provider</CardTitle>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Plug className="h-4 w-4 text-muted-foreground" />
+            <CardTitle>Connect {selection.label}</CardTitle>
+          </div>
+          {positionLabel && (
+            <span className="text-[11px] text-muted-foreground">{positionLabel}</span>
+          )}
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Paste any provider API key below. We&apos;ll probe every supported endpoint in
-          parallel to figure out which provider it belongs to and what data it can reach.
-          The key is sent to your own server, used to probe, and held in memory only — it
-          isn&apos;t saved unless you confirm a successful match below.
+          Paste your <strong>{selection.label}</strong> API key. We&apos;ll probe only{" "}
+          <span className="font-mono">{selection.label}</span>&apos;s endpoints (
+          {selection.discoveryProviderIds.length > 0
+            ? `${selection.discoveryProviderIds.join(", ")}`
+            : "every supported endpoint, since you picked Other"}
+          ) so this is fast.
+          {!selection.internalProvider && selection.id !== "other" && (
+            <>
+              {" "}There&apos;s no sync adapter for {selection.label} yet, so we can&apos;t
+              save the credential — but we&apos;ll log it on your requested-integrations list.
+            </>
+          )}
         </p>
 
         <div className="flex items-center gap-2">
@@ -180,7 +232,7 @@ export function StepAddProvider({
               value={keyInput}
               onChange={(e) => setKeyInput(e.target.value)}
               type={showKey ? "text" : "password"}
-              placeholder="sk-ant-… | sk-admin-… | AIza… | ghp_… | n8n token | { service-account JSON }"
+              placeholder={`${selection.label} API key`}
               className="flex h-10 w-full rounded-lg border border-border bg-card px-3 py-1.5 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring font-mono"
               autoFocus
             />
@@ -224,80 +276,43 @@ export function StepAddProvider({
           </div>
         )}
 
-        {!running && results.length > 0 && successByProvider.size === 0 && (
-          <div className="rounded-md border border-amber-200 bg-amber-50/50 p-3 flex items-start gap-2">
-            <XCircle className="h-4 w-4 text-amber-700 shrink-0 mt-0.5" />
-            <p className="text-sm text-amber-800">
-              No endpoints responded for this key. Double-check it&apos;s the right scope (admin
-              vs. project key) and try again.
+        {!running && successResults.length > 0 && (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50/40 p-3 space-y-2">
+            <p className="text-sm font-semibold text-emerald-900">
+              {successResults.length} endpoint{successResults.length === 1 ? "" : "s"} responded
             </p>
+            <div className="flex flex-wrap gap-1.5">
+              {successResults.map((r) => (
+                <span
+                  key={r.id}
+                  className="inline-flex items-center gap-1 rounded border border-emerald-300 bg-card px-2 py-0.5 text-[11px]"
+                  title={`${r.apiName} · ${r.endpointName}`}
+                >
+                  <CheckCircle className="h-2.5 w-2.5 text-emerald-600" />
+                  <span className="text-muted-foreground">{r.apiName}</span>
+                  <span className="text-foreground/40">·</span>
+                  <span className="font-medium">{r.endpointName}</span>
+                  {r.fields && (
+                    <span className="text-muted-foreground">· {r.fields.length} fields</span>
+                  )}
+                </span>
+              ))}
+            </div>
           </div>
         )}
 
-        {!running && successByProvider.size > 0 && (
-          <div className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Found a match — pick which provider to wire up
-            </p>
-            {[...successByProvider.entries()].map(([providerId, group]) => {
-              const isChosen = chosenProvider === providerId;
-              const supported = !!group.internalProvider;
-              return (
-                <button
-                  key={providerId}
-                  type="button"
-                  onClick={() => supported && setChosenProvider(providerId)}
-                  disabled={!supported}
-                  className={`w-full text-left rounded-lg border p-4 transition-all ${
-                    isChosen
-                      ? "border-brand bg-brand/5 ring-1 ring-brand"
-                      : supported
-                      ? "border-border hover:border-muted-foreground/50"
-                      : "border-border opacity-60 cursor-not-allowed"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3 min-w-0">
-                      <div className="rounded-md bg-muted p-1.5 mt-0.5">
-                        <Plug className="h-3.5 w-3.5 text-muted-foreground" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold">{group.providerLabel}</p>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">
-                          {group.results.length} endpoint{group.results.length === 1 ? "" : "s"} responded
-                        </p>
-                        <div className="flex flex-wrap gap-1 mt-1.5">
-                          {group.results.slice(0, 4).map((r) => (
-                            <span
-                              key={r.id}
-                              className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50/60 px-1.5 py-0.5 text-[10px]"
-                              title={`${r.apiName} · ${r.endpointName}`}
-                            >
-                              <CheckCircle className="h-2.5 w-2.5 text-emerald-600" />
-                              <span className="text-muted-foreground">{r.apiName}</span>
-                              <span className="text-foreground/40">·</span>
-                              <span className="font-medium">{r.endpointName}</span>
-                            </span>
-                          ))}
-                          {group.results.length > 4 && (
-                            <span className="text-[10px] text-muted-foreground self-center">
-                              +{group.results.length - 4} more
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    {supported ? (
-                      isChosen && <Badge variant="success">Selected</Badge>
-                    ) : (
-                      <Badge variant="outline" title="No sync adapter for this provider yet">
-                        Not yet supported
-                      </Badge>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
+        {noResultsAfterRun && (
+          <div className="rounded-md border border-amber-200 bg-amber-50/50 p-3 flex items-start gap-2">
+            <XCircle className="h-4 w-4 text-amber-700 shrink-0 mt-0.5" />
+            <div className="text-sm text-amber-800">
+              <p className="font-medium">
+                Sorry — we couldn&apos;t find anything for {selection.label} with this key.
+              </p>
+              <p className="text-xs mt-1">
+                Double-check the key has the right scope (admin / org / billing — not just a
+                project key) and try again, or skip and come back to this provider later.
+              </p>
+            </div>
           </div>
         )}
 
@@ -306,17 +321,38 @@ export function StepAddProvider({
         )}
 
         <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
-          <Button
-            onClick={handleConfirm}
-            disabled={!chosenProvider || savingProvider}
-          >
-            {savingProvider
-              ? "Saving credential..."
-              : chosenProvider
-              ? `Save ${PROVIDER_LABELS[chosenProvider] ?? chosenProvider} & continue`
-              : "Pick a provider above to continue"}
+          <Button variant="ghost" onClick={onSkip}>
+            <SkipForward className="h-3.5 w-3.5" />
+            Skip {selection.label}
           </Button>
+          {!selection.internalProvider && successResults.length > 0 && (
+            <Button
+              variant="secondary"
+              onClick={() => {
+                handleRequestIntegration();
+                onSkip();
+              }}
+              disabled={requestedAlready}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              {requestedAlready ? "Requested · skipping" : `Request ${selection.label} integration`}
+            </Button>
+          )}
+          {selection.internalProvider && successResults.length > 0 && (
+            <Button
+              onClick={handleConfirmAndContinue}
+              disabled={savingProvider}
+            >
+              {savingProvider ? "Saving credential…" : `Save & continue to mapping`}
+            </Button>
+          )}
         </div>
+
+        {!selection.internalProvider && successResults.length > 0 && (
+          <Badge variant="outline" className="text-[10px]">
+            No sync adapter yet — Save &amp; map will be enabled once we ship one.
+          </Badge>
+        )}
       </CardContent>
     </Card>
   );

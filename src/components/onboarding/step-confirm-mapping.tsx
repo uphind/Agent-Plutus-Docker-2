@@ -54,11 +54,16 @@ export function StepConfirmMapping({
   discoveredEndpoints,
   providerApiKey,
   onNext,
+  onSkip,
+  positionLabel,
 }: {
   internalProvider: string | null;
   discoveredEndpoints: DiscoveredEndpointSummary[];
   providerApiKey: string;
   onNext: () => void;
+  onSkip?: () => void;
+  /** "Provider 2 of 4" — purely informational. */
+  positionLabel?: string;
 }) {
   const [activeEndpointId, setActiveEndpointId] = useState<string | null>(
     discoveredEndpoints[0]?.id ?? null
@@ -196,7 +201,12 @@ export function StepConfirmMapping({
             <GitCompareArrows className="h-4 w-4 text-muted-foreground" />
             <CardTitle>Confirm field mapping</CardTitle>
           </div>
-          <Badge variant="info">{PROVIDER_LABELS[internalProvider] ?? internalProvider}</Badge>
+          <div className="flex items-center gap-2">
+            {positionLabel && (
+              <span className="text-[11px] text-muted-foreground">{positionLabel}</span>
+            )}
+            <Badge variant="info">{PROVIDER_LABELS[internalProvider] ?? internalProvider}</Badge>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -345,13 +355,18 @@ export function StepConfirmMapping({
           <p className="text-sm text-destructive whitespace-pre-line">{saveError}</p>
         )}
 
-        <div className="flex items-center justify-end pt-2 border-t border-border">
+        <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+          {onSkip && (
+            <Button variant="ghost" onClick={onSkip}>
+              Skip mapping for now
+            </Button>
+          )}
           <Button
             onClick={handleSaveAndContinue}
             disabled={saving || missingRequired.length > 0}
             title={missingRequired.length > 0 ? "Map all required fields first" : ""}
           >
-            {saving ? "Saving..." : "Save mappings & finish"}
+            {saving ? "Saving..." : onSkip ? "Save & continue" : "Save mappings & finish"}
           </Button>
         </div>
       </CardContent>

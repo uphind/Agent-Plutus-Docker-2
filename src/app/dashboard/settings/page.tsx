@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Header } from "@/components/layout/header";
@@ -9,7 +9,8 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Bot, Eye, EyeOff, Languages, Pencil, Check as CheckIcon, RefreshCw, Wrench, Sparkles, Trash2, BarChart3 } from "lucide-react";
+import { Bot, Eye, EyeOff, Languages, Pencil, Check as CheckIcon, Wrench, Sparkles, Trash2, BarChart3 } from "lucide-react";
+import { LlmModelSelect } from "@/components/llm-model-select";
 import { useTerminology } from "@/lib/terminology";
 import { DirectorySyncContent } from "@/app/dashboard/settings/graph/page";
 import { ProvidersContent } from "@/app/dashboard/providers/page";
@@ -186,28 +187,10 @@ function AiAssistantSettings() {
   const [aiConfig, setAiConfig] = useState<AiAssistantConfig>({ provider: "openai", model: "gpt-4o-mini", apiKey: "" });
   const [aiSaved, setAiSaved] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
-  const [availableModels, setAvailableModels] = useState<Array<{ provider: string; modelId: string; displayName: string }>>([]);
-  const [modelsLoading, setModelsLoading] = useState(false);
-
-  const loadModels = useCallback(async (refresh = false) => {
-    setModelsLoading(true);
-    try {
-      const res = await fetch(`/api/v1/models/available${refresh ? "?refresh=true" : ""}`);
-      if (res.ok) {
-        const data = await res.json();
-        setAvailableModels(data.models ?? []);
-      }
-    } catch {
-      // silently fail
-    } finally {
-      setModelsLoading(false);
-    }
-  }, []);
 
   useEffect(() => {
     setAiConfig(loadAiConfig());
-    loadModels();
-  }, [loadModels]);
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -241,47 +224,18 @@ function AiAssistantSettings() {
             value={aiConfig.provider}
             onChange={(e) => {
               const provider = e.target.value;
-              const providerModels = availableModels.filter((m) => m.provider === provider);
               setAiConfig((prev) => ({
                 ...prev,
                 provider,
-                model: providerModels[0]?.modelId ?? DEFAULT_MODELS[provider] ?? prev.model,
+                model: DEFAULT_MODELS[provider] ?? prev.model,
               }));
             }}
           />
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-foreground">Model</label>
-              <button
-                type="button"
-                onClick={() => loadModels(true)}
-                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
-                disabled={modelsLoading}
-              >
-                <RefreshCw className={`h-3 w-3 ${modelsLoading ? "animate-spin" : ""}`} />
-                Refresh
-              </button>
-            </div>
-            {availableModels.filter((m) => m.provider === aiConfig.provider).length > 0 ? (
-              <select
-                className="flex h-9 w-full rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                value={aiConfig.model}
-                onChange={(e) => setAiConfig((prev) => ({ ...prev, model: e.target.value }))}
-              >
-                {availableModels
-                  .filter((m) => m.provider === aiConfig.provider)
-                  .map((m) => (
-                    <option key={m.modelId} value={m.modelId}>{m.displayName}</option>
-                  ))}
-              </select>
-            ) : (
-              <Input
-                placeholder="e.g. gpt-4o-mini"
-                value={aiConfig.model}
-                onChange={(e) => setAiConfig((prev) => ({ ...prev, model: e.target.value }))}
-              />
-            )}
-          </div>
+          <LlmModelSelect
+            provider={aiConfig.provider}
+            value={aiConfig.model}
+            onChange={(model) => setAiConfig((prev) => ({ ...prev, model }))}
+          />
         </div>
 
         <div className="relative">
@@ -414,16 +368,12 @@ function AiToolsSettings() {
             options={LLM_PROVIDER_OPTIONS}
             value={provider}
             onChange={(e) => {
-              setProvider(e.target.value);
-              setModel(DEFAULT_MODELS[e.target.value] ?? model);
+              const next = e.target.value;
+              setProvider(next);
+              setModel(DEFAULT_MODELS[next] ?? model);
             }}
           />
-          <Input
-            label="Model"
-            placeholder="e.g. gpt-4o-mini"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-          />
+          <LlmModelSelect provider={provider} value={model} onChange={setModel} />
         </div>
 
         <div className="relative">

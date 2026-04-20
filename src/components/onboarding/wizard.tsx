@@ -6,28 +6,42 @@ import { Card } from "@/components/ui/card";
 import { CheckCircle, Circle, ChevronRight } from "lucide-react";
 import { api } from "@/lib/dashboard-api";
 import { StepWelcome } from "./step-welcome";
-import { StepAiAssistant } from "./step-ai-assistant";
-import { StepAiTools } from "./step-ai-tools";
-import { StepAddProvider } from "./step-add-provider";
+import { StepDirectory, type DirectoryStepResult } from "./step-directory";
+import { StepDirectoryMapping } from "./step-directory-mapping";
+import { StepTerminology } from "./step-terminology";
+import { StepSelectProviders, type ProviderSelection } from "./step-select-providers";
+import { StepAi } from "./step-ai";
+import { StepProviderDiscovery, type ProviderDiscoveryResult } from "./step-provider-discovery";
 import { StepConfirmMapping } from "./step-confirm-mapping";
 import { StepDone } from "./step-done";
 
 /**
  * Onboarding wizard.
  *
- * Five-step linear flow that gets a brand-new instance from "no providers,
- * no chatbot" to "first provider connected, mappings confirmed, chatbot
- * working". Each step component manages its own state and reports completion
- * back via setStepData; the wizard owns navigation, the progress bar, and
- * the top-level "Skip onboarding" / "Finish" actions.
+ * 1. Welcome
+ * 2. Active Directory connect + sync frequency
+ * 3. Confirm AD field mapping
+ * 4. Confirm terminology
+ * 5. Select providers (multi-select tile grid)
+ * 6. AI Assistant (single combined key for chatbot + AI Tools)
+ * 7. Per-provider loop:
+ *      a. Filtered Discovery for that provider
+ *      b. Confirm mapping (with the AI suggest button if AI Tools is set)
+ * 8. Done
+ *
+ * The progress bar collapses the per-provider loop into one segment with a
+ * subtle "X of Y" subtitle so the header stays compact.
  */
 
 export type OnboardingStepId =
   | "welcome"
-  | "ai-assistant"
-  | "ai-tools"
-  | "add-provider"
-  | "confirm-mapping"
+  | "directory"
+  | "directory-mapping"
+  | "terminology"
+  | "select-providers"
+  | "ai"
+  | "provider-discovery"
+  | "provider-mapping"
   | "done";
 
 export interface DiscoveredEndpointSummary {
@@ -39,56 +53,81 @@ export interface DiscoveredEndpointSummary {
 }
 
 export interface OnboardingFlowState {
-  /** internal Provider id (anthropic / openai / etc.) selected via Discovery. */
-  internalProvider: string | null;
-  /** Discovery endpoints that came back ok / no_data for that internal provider. */
+  /** Multi-select picks from step 5. */
+  selectedProviders: ProviderSelection[];
+  /** Index into selectedProviders for the current loop iteration. */
+  currentProviderIndex: number;
+  /** Cached AD result so the mapping step doesn't re-fetch the sample. */
+  directoryResult: DirectoryStepResult | null;
+  /** Discovered endpoints for the CURRENT provider in the loop. */
   discoveredEndpoints: DiscoveredEndpointSummary[];
-  /** Raw API key the user pasted in Add Provider — held in memory only. */
+  /** Internal provider id matched in this loop iteration. */
+  internalProvider: string | null;
+  /** Provider key the user pasted in the loop's discovery step. */
   providerApiKey: string;
-  /** Required-target completion check passed in step-confirm-mapping. */
-  mappingConfirmed: boolean;
 }
 
-const STEPS: Array<{ id: OnboardingStepId; label: string; optional?: boolean }> = [
-  { id: "welcome",          label: "Welcome" },
-  { id: "ai-assistant",     label: "Chatbot",        optional: true },
-  { id: "ai-tools",         label: "AI Tools",       optional: true },
-  { id: "add-provider",     label: "Add provider" },
-  { id: "confirm-mapping",  label: "Confirm mapping" },
-  { id: "done",             label: "Done" },
+const STEP_LABELS: Record<OnboardingStepId, { label: string; optional?: boolean }> = {
+  welcome:             { label: "Welcome" },
+  directory:           { label: "Directory",         optional: true },
+  "directory-mapping": { label: "AD mapping",        optional: true },
+  terminology:         { label: "Terminology",       optional: true },
+  "select-providers":  { label: "Providers" },
+  ai:                  { label: "AI Assistant",      optional: true },
+  "provider-discovery":{ label: "Discover" },
+  "provider-mapping":  { label: "Map fields" },
+  done:                { label: "Done" },
+};
+
+const HEADER_STEPS: OnboardingStepId[] = [
+  "welcome",
+  "directory",
+  "directory-mapping",
+  "terminology",
+  "select-providers",
+  "ai",
+  "provider-discovery",
+  "provider-mapping",
 ];
 
 interface OnboardingWizardProps {
   initialStep?: OnboardingStepId;
-  /** Called after the user finishes the wizard (or chooses to skip the rest). */
   onComplete: (opts: { skipped: boolean }) => void;
-  /** Optional close button — used when the wizard is in a modal. */
   onClose?: () => void;
 }
 
 export function OnboardingWizard({ initialStep = "welcome", onComplete, onClose }: OnboardingWizardProps) {
   const [stepId, setStepId] = useState<OnboardingStepId>(initialStep);
   const [flow, setFlow] = useState<OnboardingFlowState>({
-    internalProvider: null,
+    selectedProviders: [],
+    currentProviderIndex: 0,
+    directoryResult: null,
     discoveredEndpoints: [],
+    internalProvider: null,
     providerApiKey: "",
-    mappingConfirmed: false,
   });
 
-  const stepIndex = STEPS.findIndex((s) => s.id === stepId);
-  const isLast = stepIndex === STEPS.length - 1;
-
-  const goNext = useCallback(() => {
-    setStepId((cur) => {
-      const i = STEPS.findIndex((s) => s.id === cur);
-      return STEPS[Math.min(i + 1, STEPS.length - 1)].id;
-    });
+  const updateFlow = useCallback((next: Partial<OnboardingFlowState>) => {
+    setFlow((prev) => ({ ...prev, ...next }));
   }, []);
 
-  const goBack = useCallback(() => {
-    setStepId((cur) => {
-      const i = STEPS.findIndex((s) => s.id === cur);
-      return STEPS[Math.max(i - 1, 0)].id;
+  const advanceToNextProviderOrDone = useCallback(() => {
+    setFlow((prev) => {
+      const nextIndex = prev.currentProviderIndex + 1;
+      if (nextIndex >= prev.selectedProviders.length) {
+        // No providers left — fall through to Done.
+        setStepId("done");
+        return { ...prev, currentProviderIndex: 0 };
+      }
+      // Restart the loop on the next provider.
+      setStepId("provider-discovery");
+      return {
+        ...prev,
+        currentProviderIndex: nextIndex,
+        discoveredEndpoints: [],
+        internalProvider: null,
+        providerApiKey: "",
+      };
     });
   }, []);
 
@@ -96,7 +135,7 @@ export function OnboardingWizard({ initialStep = "welcome", onComplete, onClose 
     try {
       await api.setOnboardingState(true);
     } catch {
-      // non-fatal — auto-redirect won't fire if providers exist anyway
+      /* ignore */
     }
     onComplete({ skipped: true });
   }, [onComplete]);
@@ -110,61 +149,137 @@ export function OnboardingWizard({ initialStep = "welcome", onComplete, onClose 
     onComplete({ skipped: false });
   }, [onComplete]);
 
-  const updateFlow = useCallback((next: Partial<OnboardingFlowState>) => {
-    setFlow((prev) => ({ ...prev, ...next }));
-  }, []);
+  const currentSelection: ProviderSelection | null =
+    flow.selectedProviders[flow.currentProviderIndex] ?? null;
 
   const stepBody = useMemo(() => {
     switch (stepId) {
       case "welcome":
-        return <StepWelcome onNext={goNext} />;
-      case "ai-assistant":
-        return <StepAiAssistant onNext={goNext} onSkip={goNext} />;
-      case "ai-tools":
-        return <StepAiTools onNext={goNext} onSkip={goNext} />;
-      case "add-provider":
+        return <StepWelcome onNext={() => setStepId("directory")} />;
+
+      case "directory":
         return (
-          <StepAddProvider
-            onNext={(args) => {
-              updateFlow({
-                internalProvider: args.internalProvider,
-                discoveredEndpoints: args.discoveredEndpoints,
-                providerApiKey: args.apiKey,
-              });
-              goNext();
+          <StepDirectory
+            onNext={(result) => {
+              updateFlow({ directoryResult: result });
+              setStepId("directory-mapping");
+            }}
+            onSkip={() => {
+              updateFlow({ directoryResult: { graphConnected: false, availableFields: [], sampleUser: null } });
+              setStepId("directory-mapping");
             }}
           />
         );
-      case "confirm-mapping":
+
+      case "directory-mapping":
+        return (
+          <StepDirectoryMapping
+            directoryResult={flow.directoryResult}
+            onNext={() => setStepId("terminology")}
+            onSkip={() => setStepId("terminology")}
+          />
+        );
+
+      case "terminology":
+        return (
+          <StepTerminology
+            onNext={() => setStepId("select-providers")}
+            onSkip={() => setStepId("select-providers")}
+          />
+        );
+
+      case "select-providers":
+        return (
+          <StepSelectProviders
+            initiallySelected={flow.selectedProviders.map((p) => p.id)}
+            onNext={(selection) => {
+              updateFlow({ selectedProviders: selection, currentProviderIndex: 0 });
+              setStepId("ai");
+            }}
+            onSkip={() => {
+              updateFlow({ selectedProviders: [] });
+              setStepId("ai");
+            }}
+          />
+        );
+
+      case "ai":
+        return (
+          <StepAi
+            onNext={() => {
+              if (flow.selectedProviders.length > 0) setStepId("provider-discovery");
+              else setStepId("done");
+            }}
+            onSkip={() => {
+              if (flow.selectedProviders.length > 0) setStepId("provider-discovery");
+              else setStepId("done");
+            }}
+          />
+        );
+
+      case "provider-discovery":
+        if (!currentSelection) {
+          // Defensive: shouldn't happen, fall through to Done.
+          setStepId("done");
+          return null;
+        }
+        return (
+          <StepProviderDiscovery
+            selection={currentSelection}
+            positionLabel={`Provider ${flow.currentProviderIndex + 1} of ${flow.selectedProviders.length}`}
+            onNext={(result: ProviderDiscoveryResult) => {
+              updateFlow({
+                internalProvider: result.internalProvider,
+                discoveredEndpoints: result.discoveredEndpoints,
+                providerApiKey: result.apiKey,
+              });
+              setStepId("provider-mapping");
+            }}
+            onSkip={advanceToNextProviderOrDone}
+          />
+        );
+
+      case "provider-mapping":
+        if (!currentSelection || !flow.internalProvider) {
+          advanceToNextProviderOrDone();
+          return null;
+        }
         return (
           <StepConfirmMapping
             internalProvider={flow.internalProvider}
             discoveredEndpoints={flow.discoveredEndpoints}
             providerApiKey={flow.providerApiKey}
-            onNext={() => {
-              updateFlow({ mappingConfirmed: true });
-              goNext();
-            }}
+            onNext={advanceToNextProviderOrDone}
+            onSkip={advanceToNextProviderOrDone}
+            positionLabel={`Provider ${flow.currentProviderIndex + 1} of ${flow.selectedProviders.length}`}
           />
         );
+
       case "done":
         return <StepDone onFinish={finish} />;
+
       default:
         return null;
     }
-  }, [stepId, goNext, updateFlow, flow, finish]);
+  }, [stepId, flow, currentSelection, updateFlow, advanceToNextProviderOrDone, finish]);
 
   return (
     <div className="space-y-6">
       <Card className="p-5">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-2 flex-wrap">
-            {STEPS.filter((s) => s.id !== "done").map((s, i) => {
-              const idx = STEPS.findIndex((x) => x.id === s.id);
-              const reached = idx <= stepIndex;
-              const isCurrent = s.id === stepId;
+            {HEADER_STEPS.map((id, idx) => {
+              const meta = STEP_LABELS[id];
+              const headerIdx = HEADER_STEPS.indexOf(stepId);
+              const reached = headerIdx >= idx;
+              const isCurrent = stepId === id;
+              const isLoopStep = id === "provider-discovery" || id === "provider-mapping";
+              const subtitle =
+                isLoopStep && flow.selectedProviders.length > 0
+                  ? `(${Math.min(flow.currentProviderIndex + 1, flow.selectedProviders.length)} of ${flow.selectedProviders.length})`
+                  : null;
               return (
-                <div key={s.id} className="flex items-center gap-1.5">
+                <div key={id} className="flex items-center gap-1.5">
                   {reached ? (
                     <CheckCircle className={`h-3.5 w-3.5 ${isCurrent ? "text-brand" : "text-emerald-500"}`} />
                   ) : (
@@ -175,10 +290,11 @@ export function OnboardingWizard({ initialStep = "welcome", onComplete, onClose 
                       isCurrent ? "font-semibold text-foreground" : reached ? "text-foreground" : "text-muted-foreground"
                     }`}
                   >
-                    {s.label}
-                    {s.optional && <span className="text-muted-foreground ml-1">(optional)</span>}
+                    {meta.label}
+                    {meta.optional && <span className="text-muted-foreground ml-1">(optional)</span>}
+                    {subtitle && <span className="text-muted-foreground ml-1">{subtitle}</span>}
                   </span>
-                  {i < STEPS.filter((x) => x.id !== "done").length - 1 && (
+                  {idx < HEADER_STEPS.length - 1 && (
                     <ChevronRight className="h-3 w-3 text-muted-foreground/30 ml-0.5" />
                   )}
                 </div>
@@ -186,10 +302,7 @@ export function OnboardingWizard({ initialStep = "welcome", onComplete, onClose 
             })}
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {!isLast && stepId !== "welcome" && (
-              <Button variant="ghost" size="sm" onClick={goBack}>Back</Button>
-            )}
-            {!isLast && (
+            {stepId !== "done" && (
               <Button variant="ghost" size="sm" onClick={skipRest}>
                 Skip onboarding
               </Button>

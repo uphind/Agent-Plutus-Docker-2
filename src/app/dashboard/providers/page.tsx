@@ -768,7 +768,7 @@ export function ProvidersContent({ showHeader = true }: ProvidersContentProps) {
           className="max-w-3xl"
         >
           <OnboardingWizard
-            initialStep="add-provider"
+            initialStep="select-providers"
             onComplete={() => {
               setShowWizard(false);
               loadProviders();

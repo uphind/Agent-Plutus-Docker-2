@@ -54,6 +54,17 @@ const bodySchema = z.object({
   n8n_base_url: z.string().optional().nullable(),
   vertex_project_id: z.string().optional().nullable(),
   vertex_location: z.string().optional().nullable(),
+  /**
+   * Optional filter — only probe endpoints whose top-level discovery
+   * provider id matches one of these values (e.g. ["anthropic", "openai"]).
+   */
+  providers: z.array(z.string()).optional(),
+  /**
+   * Optional filter — only probe endpoints whose internalProvider matches
+   * one of these values (e.g. ["anthropic_compliance"]). Combined with
+   * `providers` via OR — an endpoint passes if EITHER filter matches.
+   */
+  internal_providers: z.array(z.string()).optional(),
 });
 
 function classifyHttpStatus(status: number): ProbeStatus {
@@ -222,6 +233,23 @@ export async function POST(request: NextRequest) {
   const detection = detectKeyShape(apiKey);
   const keyHint = redactKey(apiKey);
 
+  // Apply optional provider filters — empty / missing means "probe everything"
+  // exactly as before (preserves the unfiltered behavior the standalone
+  // Discovery page relies on).
+  const providerFilter = parsed.data.providers && parsed.data.providers.length > 0
+    ? new Set(parsed.data.providers)
+    : null;
+  const internalFilter = parsed.data.internal_providers && parsed.data.internal_providers.length > 0
+    ? new Set(parsed.data.internal_providers)
+    : null;
+  const filteredCatalog = providerFilter || internalFilter
+    ? DISCOVERY_CATALOG.filter(
+        (e) =>
+          (providerFilter ? providerFilter.has(e.provider) : false) ||
+          (internalFilter && e.internalProvider ? internalFilter.has(e.internalProvider) : false)
+      )
+    : DISCOVERY_CATALOG;
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -242,7 +270,7 @@ export async function POST(request: NextRequest) {
           vertexProjectId: ctx.vertexProjectId,
           vertexLocation: ctx.vertexLocation,
         },
-        endpoints: DISCOVERY_CATALOG.map((e) => ({
+        endpoints: filteredCatalog.map((e) => ({
           id: e.id,
           provider: e.provider,
           providerLabel: e.providerLabel,
@@ -266,7 +294,7 @@ export async function POST(request: NextRequest) {
         errored: 0,
       };
       await Promise.all(
-        DISCOVERY_CATALOG.map(async (endpoint) => {
+        filteredCatalog.map(async (endpoint) => {
           const result = await executeRequest(endpoint, ctx);
           switch (result.status) {
             case "ok": counters.ok++; break;
@@ -284,7 +312,7 @@ export async function POST(request: NextRequest) {
       // 3. Final summary so the UI can stop the spinner / show totals.
       enqueue({
         type: "done",
-        summary: { attempted: DISCOVERY_CATALOG.length, ...counters },
+        summary: { attempted: filteredCatalog.length, ...counters },
       });
       controller.close();
     },
