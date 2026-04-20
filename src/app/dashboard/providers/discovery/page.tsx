@@ -147,6 +147,29 @@ export default function DiscoveryPage() {
 
   const [savedProviders, setSavedProviders] = useState<Record<string, "saving" | "saved" | string>>({});
   const [mappingProvider, setMappingProvider] = useState<string | null>(null);
+
+  // Providers that already have a saved credential in the database. We fetch
+  // this on mount so the UI can offer "Just map" instead of "Save & map" when
+  // the user restored a session from history (raw key is never stored, so a
+  // re-save would fail with a validation error).
+  const [configuredProviders, setConfiguredProviders] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getProviders()
+      .then((data: { providers?: Array<{ provider: string; isActive: boolean }> }) => {
+        if (cancelled) return;
+        const active = (data.providers ?? []).filter((p) => p.isActive).map((p) => p.provider);
+        setConfiguredProviders(new Set(active));
+      })
+      .catch(() => {
+        // Non-fatal — user can still discover; Save & map will just behave
+        // as if the provider isn't already configured.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [pendingPrompt, setPendingPrompt] = useState<ProbeResult | null>(null);
   const { items: requestedItems, add: addRequested } = useRequestedIntegrations();
   const requestedSet = useMemo(
@@ -432,25 +455,68 @@ export default function DiscoveryPage() {
     downloadJson(payload, `discovery-schemas-${Date.now()}.json`);
   };
 
+  /**
+   * Handle the row's primary CTA. Behavior depends on what we have:
+   *
+   *   1. No internalProvider → no-op (button shouldn't be visible).
+   *
+   *   2. Key field is empty (likely because the user restored a session from
+   *      history — we never store raw keys) → skip the save, just open the
+   *      mapping modal. If the provider isn't yet configured we surface a
+   *      short-lived "Key not stored — paste it again to save" hint.
+   *
+   *   3. Key present → upsert the credential as before. If the upsert fails
+   *      (e.g. validation, network) AND the provider was already configured,
+   *      we still open the mapping modal so the user isn't blocked.
+   */
   const handleSaveProvider = useCallback(
     async (result: ProbeResult, openMappingAfter: boolean) => {
-      if (!result.internalProvider) return;
-      setSavedProviders((prev) => ({ ...prev, [result.internalProvider!]: "saving" }));
+      const internalProvider = result.internalProvider;
+      if (!internalProvider) return;
+
+      const hasKey = keyInput.trim().length > 0;
+      const alreadyConfigured = configuredProviders.has(internalProvider);
+
+      // Case 2 — no key in the input box.
+      if (!hasKey) {
+        if (openMappingAfter) {
+          setMappingProvider(internalProvider);
+        }
+        if (!alreadyConfigured) {
+          setSavedProviders((prev) => ({
+            ...prev,
+            [internalProvider]: "Key field is empty — paste your API key above to save the credential.",
+          }));
+        }
+        return;
+      }
+
+      // Case 3 — try to upsert.
+      setSavedProviders((prev) => ({ ...prev, [internalProvider]: "saving" }));
       try {
         const label = `${result.providerLabel} · ${result.apiName}`;
-        await api.addProvider(result.internalProvider, keyInput.trim(), label);
-        setSavedProviders((prev) => ({ ...prev, [result.internalProvider!]: "saved" }));
+        await api.addProvider(internalProvider, keyInput.trim(), label);
+        setSavedProviders((prev) => ({ ...prev, [internalProvider]: "saved" }));
+        setConfiguredProviders((prev) => {
+          const next = new Set(prev);
+          next.add(internalProvider);
+          return next;
+        });
         if (openMappingAfter) {
-          setMappingProvider(result.internalProvider);
+          setMappingProvider(internalProvider);
         }
       } catch (e) {
-        setSavedProviders((prev) => ({
-          ...prev,
-          [result.internalProvider!]: e instanceof Error ? e.message : "Save failed",
-        }));
+        const message = e instanceof Error ? e.message : "Save failed";
+        setSavedProviders((prev) => ({ ...prev, [internalProvider]: message }));
+        // Even on save failure, if the provider was already configured the
+        // user almost certainly just wants to map fields — open the modal
+        // so they're not stuck.
+        if (openMappingAfter && alreadyConfigured) {
+          setMappingProvider(internalProvider);
+        }
       }
     },
-    [keyInput]
+    [keyInput, configuredProviders]
   );
 
   return (
@@ -604,6 +670,7 @@ export default function DiscoveryPage() {
               onSaveProvider={handleSaveProvider}
               requestedSet={requestedSet}
               onRequestIntegration={(r) => setPendingPrompt(r)}
+              configuredSet={configuredProviders}
             />
           ))}
         </div>
@@ -909,6 +976,7 @@ function ProviderGroup({
   onSaveProvider,
   requestedSet,
   onRequestIntegration,
+  configuredSet,
 }: {
   providerLabel: string;
   results: ProbeResult[];
@@ -919,6 +987,7 @@ function ProviderGroup({
   onSaveProvider: (r: ProbeResult, openMappingAfter: boolean) => void;
   requestedSet: Set<string>;
   onRequestIntegration: (r: ProbeResult) => void;
+  configuredSet: Set<string>;
 }) {
   const finished = results.filter((r) => r.status !== "pending").length;
   const okCount = results.filter((r) => r.status === "ok" || r.status === "no_data").length;
@@ -944,6 +1013,7 @@ function ProviderGroup({
             onSaveProvider={onSaveProvider}
             isRequested={requestedSet.has(r.provider)}
             onRequestIntegration={onRequestIntegration}
+            isAlreadyConfigured={r.internalProvider ? configuredSet.has(r.internalProvider) : false}
           />
         ))}
       </div>
@@ -955,10 +1025,12 @@ function ResultCard({
   result,
   expanded,
   onToggle,
+  apiKey,
   saveState,
   onSaveProvider,
   isRequested,
   onRequestIntegration,
+  isAlreadyConfigured,
 }: {
   result: ProbeResult;
   expanded: boolean;
@@ -968,6 +1040,7 @@ function ResultCard({
   onSaveProvider: (r: ProbeResult, openMappingAfter: boolean) => void;
   isRequested: boolean;
   onRequestIntegration: (r: ProbeResult) => void;
+  isAlreadyConfigured: boolean;
 }) {
   const isPending = result.status === "pending";
   const meta = isPending ? null : STATUS_META[result.status as Exclude<ProbeStatus, "pending">];
@@ -988,6 +1061,18 @@ function ResultCard({
   const isSaved = saveState === "saved";
   const isSaving = saveState === "saving";
   const saveError = saveState && saveState !== "saved" && saveState !== "saving" ? saveState : null;
+
+  // What the row's primary CTA should look like depends on (a) whether the
+  // user has a key in the input box right now and (b) whether the matching
+  // internalProvider is already configured server-side.
+  const hasKeyInInput = apiKey.trim().length > 0;
+  const ctaCompact = isAlreadyConfigured
+    ? hasKeyInInput
+      ? { label: "Update key & map", short: "Update & map" }
+      : { label: "Map fields", short: "Map" }
+    : hasKeyInInput
+    ? { label: "Save & map", short: "Save & map" }
+    : { label: "Map fields", short: "Map" };
 
   return (
     <Card
@@ -1054,9 +1139,10 @@ function ResultCard({
                 e.stopPropagation();
                 onSaveProvider(result, true);
               }}
+              title={ctaCompact.label}
             >
               <Save className="h-3.5 w-3.5" />
-              Save &amp; map
+              {ctaCompact.short}
             </Button>
           )}
           {canRequest && !isRequested && (
@@ -1150,25 +1236,45 @@ function ResultCard({
           )}
 
           {canSave && (
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                variant={isSaved ? "ghost" : "primary"}
-                onClick={() => onSaveProvider(result, true)}
-                disabled={isSaving}
-              >
-                <KeyRound className="h-3.5 w-3.5" />
-                {isSaved ? "Saved · Re-map fields" : isSaving ? "Saving…" : `Save as “${result.internalProvider}” + map`}
-              </Button>
-              {!isSaved && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   size="sm"
-                  variant="ghost"
-                  onClick={() => onSaveProvider(result, false)}
+                  variant={isSaved ? "ghost" : "primary"}
+                  onClick={() => onSaveProvider(result, true)}
                   disabled={isSaving}
+                  title={ctaCompact.label}
                 >
-                  Save without opening mapping
+                  <KeyRound className="h-3.5 w-3.5" />
+                  {isSaved
+                    ? "Saved · Re-map fields"
+                    : isSaving
+                    ? "Saving…"
+                    : isAlreadyConfigured
+                    ? hasKeyInInput
+                      ? `Update “${result.internalProvider}” + map`
+                      : `Map “${result.internalProvider}” fields`
+                    : hasKeyInInput
+                    ? `Save as “${result.internalProvider}” + map`
+                    : `Map “${result.internalProvider}” fields`}
                 </Button>
+                {hasKeyInInput && !isSaved && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => onSaveProvider(result, false)}
+                    disabled={isSaving}
+                  >
+                    Save without opening mapping
+                  </Button>
+                )}
+              </div>
+              {!hasKeyInInput && (
+                <p className="text-[11px] text-muted-foreground">
+                  {isAlreadyConfigured
+                    ? "Using your previously-saved credential — the mapping modal will open without re-saving."
+                    : "Paste your API key in the box above to save the credential. The mapping modal can still be opened with the live discovered fields."}
+                </p>
               )}
             </div>
           )}
