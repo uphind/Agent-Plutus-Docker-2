@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getOrgId } from "@/lib/org";
+import { logAiCall } from "@/lib/ai-usage-log";
+
+interface ChatCallResult {
+  text: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens?: number;
+}
 
 const chatSchema = z.object({
   question: z.string().min(1).max(2000),
@@ -209,7 +217,7 @@ async function callOpenAI(
   systemPrompt: string,
   context: string,
   question: string
-): Promise<string> {
+): Promise<ChatCallResult> {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -237,8 +245,20 @@ async function callOpenAI(
     );
   }
 
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content ?? "No response generated.";
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+    usage?: {
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      prompt_tokens_details?: { cached_tokens?: number };
+    };
+  };
+  return {
+    text: data.choices?.[0]?.message?.content ?? "No response generated.",
+    inputTokens: data.usage?.prompt_tokens ?? 0,
+    outputTokens: data.usage?.completion_tokens ?? 0,
+    cachedTokens: data.usage?.prompt_tokens_details?.cached_tokens ?? 0,
+  };
 }
 
 async function callAnthropic(
@@ -247,7 +267,7 @@ async function callAnthropic(
   systemPrompt: string,
   context: string,
   question: string
-): Promise<string> {
+): Promise<ChatCallResult> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -275,11 +295,22 @@ async function callAnthropic(
     );
   }
 
-  const data = await res.json();
-  return (
-    data.content?.map((c: { text: string }) => c.text).join("") ??
-    "No response generated."
-  );
+  const data = (await res.json()) as {
+    content?: Array<{ text?: string }>;
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      cache_read_input_tokens?: number;
+    };
+  };
+  return {
+    text:
+      (data.content ?? []).map((c) => c.text ?? "").join("") ||
+      "No response generated.",
+    inputTokens: data.usage?.input_tokens ?? 0,
+    outputTokens: data.usage?.output_tokens ?? 0,
+    cachedTokens: data.usage?.cache_read_input_tokens ?? 0,
+  };
 }
 
 async function callGemini(
@@ -288,7 +319,7 @@ async function callGemini(
   systemPrompt: string,
   context: string,
   question: string
-): Promise<string> {
+): Promise<ChatCallResult> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const res = await fetch(url, {
@@ -316,12 +347,23 @@ async function callGemini(
     );
   }
 
-  const data = await res.json();
-  return (
-    data.candidates?.[0]?.content?.parts
-      ?.map((p: { text: string }) => p.text)
-      .join("") ?? "No response generated."
-  );
+  const data = (await res.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    usageMetadata?: {
+      promptTokenCount?: number;
+      candidatesTokenCount?: number;
+      cachedContentTokenCount?: number;
+    };
+  };
+  return {
+    text:
+      (data.candidates?.[0]?.content?.parts ?? [])
+        .map((p) => p.text ?? "")
+        .join("") || "No response generated.",
+    inputTokens: data.usageMetadata?.promptTokenCount ?? 0,
+    outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
+    cachedTokens: data.usageMetadata?.cachedContentTokenCount ?? 0,
+  };
 }
 
 export async function POST(request: NextRequest) {
@@ -361,23 +403,42 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    let answer: string;
+    let result: ChatCallResult;
 
     switch (provider) {
       case "openai":
-        answer = await callOpenAI(apiKey, model, SYSTEM_PROMPT, context, question);
+        result = await callOpenAI(apiKey, model, SYSTEM_PROMPT, context, question);
         break;
       case "anthropic":
-        answer = await callAnthropic(apiKey, model, SYSTEM_PROMPT, context, question);
+        result = await callAnthropic(apiKey, model, SYSTEM_PROMPT, context, question);
         break;
       case "gemini":
-        answer = await callGemini(apiKey, model, SYSTEM_PROMPT, context, question);
+        result = await callGemini(apiKey, model, SYSTEM_PROMPT, context, question);
         break;
       default:
         return NextResponse.json({ error: "Unknown provider" }, { status: 400 });
     }
 
-    return NextResponse.json({ answer });
+    // Persist usage metrics for the chatbot tracker. Logging is best-effort
+    // and never blocks/breaks the user-visible response.
+    await logAiCall({
+      orgId,
+      source: "chatbot",
+      provider,
+      model,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      cachedTokens: result.cachedTokens,
+    });
+
+    return NextResponse.json({
+      answer: result.text,
+      usage: {
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        cachedTokens: result.cachedTokens ?? 0,
+      },
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "LLM request failed";
     return NextResponse.json({ error: message }, { status: 502 });

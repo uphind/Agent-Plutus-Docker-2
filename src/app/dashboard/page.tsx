@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Header } from "@/components/layout/header";
 import { StatCard } from "@/components/ui/stat-card";
@@ -75,10 +76,33 @@ export default function OverviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [providerChartMode, setProviderChartMode] = useState<"bar" | "pie">("bar");
   const [setupSkipped, setSetupSkipped] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     setSetupSkipped(localStorage.getItem(SETUP_SKIPPED_KEY) === "true");
   }, []);
+
+  // Auto-redirect first-time users to the onboarding wizard. Only fires when
+  // the user (a) has never marked onboarding complete server-side AND (b)
+  // hasn't dismissed the dashboard onboarding banner client-side AND (c) has
+  // no providers configured. The check happens once after the dashboard data
+  // loads so we have an accurate provider count.
+  useEffect(() => {
+    if (!data) return;
+    if (setupSkipped) return;
+    if (data.activeProviders > 0) return;
+    let cancelled = false;
+    api
+      .getOnboardingState()
+      .then((s: { completed: boolean }) => {
+        if (cancelled || s.completed) return;
+        router.push("/dashboard/onboarding");
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [data, setupSkipped, router]);
 
   useEffect(() => {
     setLoading(true);
@@ -139,9 +163,17 @@ export default function OverviewPage() {
             <Image src="/logo/symbol.svg" alt="Agent Plutus" width={48} height={48} />
           </div>
           <h2 className="text-xl font-bold mb-2">Welcome to Agent Plutus</h2>
-          <p className="text-sm text-muted-foreground mb-8">
+          <p className="text-sm text-muted-foreground mb-6">
             Get started by completing the setup steps below. Once configured, your AI usage data will appear here automatically.
           </p>
+          <div className="mb-6">
+            <Link
+              href="/dashboard/onboarding"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-light transition-colors"
+            >
+              Run guided onboarding
+            </Link>
+          </div>
           <div className="space-y-4 text-left">
             {[
               { label: "Connect an AI provider", href: "/dashboard/settings", done: false },

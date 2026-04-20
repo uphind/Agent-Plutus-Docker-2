@@ -12,8 +12,13 @@ import {
 } from "@/lib/providers/field-definitions";
 import type { FieldDef } from "@/lib/providers/field-definitions";
 import {
+  getPresetsForProvider,
+  getPresetForEndpoint,
+  type MappingPreset,
+} from "@/lib/providers/mapping-presets";
+import {
   GripVertical, ArrowRight, Check, Trash2, RotateCcw, Wand2,
-  Download, AlertTriangle, Radar,
+  Download, AlertTriangle, Radar, Sparkles,
 } from "lucide-react";
 import { PROVIDER_LABELS } from "@/lib/utils";
 
@@ -87,6 +92,108 @@ export function ProviderFieldMappingModal({ open, onClose, provider, discoveredE
   );
 
   const label = PROVIDER_LABELS[provider] ?? provider;
+
+  // Mapping presets — shown as a dropdown above the target column. When the
+  // modal is opened from Discovery the preset auto-selects to whichever one
+  // best fits the active endpoint, and applying it pre-fills mappings for
+  // any user-edited entries that haven't been touched yet.
+  const presets = useMemo(() => getPresetsForProvider(provider), [provider]);
+  const [presetId, setPresetId] = useState<string | null>(null);
+  const [userTouchedMapping, setUserTouchedMapping] = useState(false);
+
+  // When the active discovered endpoint changes, preselect the matching
+  // preset (without forcing a re-apply if the user has already edited).
+  useEffect(() => {
+    if (!discoveredEndpoints || discoveredEndpoints.length === 0) return;
+    const matched = getPresetForEndpoint(provider, activeDiscovered?.id);
+    if (matched && presetId !== matched.id) {
+      setPresetId(matched.id);
+    }
+  }, [provider, activeDiscovered, discoveredEndpoints, presetId]);
+
+  // Apply a preset's mappings to the modal's mapping state. Skips entries
+  // whose target is already mapped to a non-preset value if the user has
+  // touched the mapping themselves (a small confirm asks first in that case).
+  const applyPreset = useCallback(
+    (preset: MappingPreset, opts: { force?: boolean } = {}) => {
+      if (!opts.force && userTouchedMapping) {
+        const ok =
+          typeof window === "undefined"
+            ? true
+            : window.confirm(
+                "Replace your current mappings with the preset? Mappings you've edited will be lost."
+              );
+        if (!ok) return;
+      }
+      setMappings(preset.mappings.map((m) => ({ ...m })));
+      setSaved(false);
+      setUserTouchedMapping(false);
+    },
+    [userTouchedMapping]
+  );
+
+  const handlePresetChange = (nextId: string) => {
+    const next = presets.find((p) => p.id === nextId);
+    if (!next) return;
+    setPresetId(next.id);
+    applyPreset(next);
+  };
+
+  // AI mapping suggestions — uses the server-side AI Tools key. Disabled when
+  // the AI Tools key isn't configured (server returns a 400 with a hint).
+  const [aiToolsConfigured, setAiToolsConfigured] = useState<boolean | null>(null);
+  const [aiSuggesting, setAiSuggesting] = useState(false);
+  const [aiSuggestError, setAiSuggestError] = useState<string | null>(null);
+  const [aiSuggestedTargets, setAiSuggestedTargets] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!open) return;
+    api
+      .getAiToolsConfig()
+      .then((data: { configured: boolean }) => setAiToolsConfigured(!!data.configured))
+      .catch(() => setAiToolsConfigured(false));
+  }, [open]);
+
+  const handleAiSuggest = async () => {
+    const endpoint = activeDiscovered;
+    if (!endpoint) return;
+    setAiSuggesting(true);
+    setAiSuggestError(null);
+    try {
+      const data = (await api.suggestMapping({
+        provider,
+        apiName: endpoint.apiName,
+        endpointName: endpoint.endpointName,
+        sourceFields: endpoint.fields.map((path) => ({
+          path,
+          sample: lookupSampleAt(endpoint.body, path),
+        })),
+        targetFields: TARGET_FIELDS.map((t) => ({
+          key: t.key,
+          label: t.label,
+          description: t.description,
+          required: t.required,
+        })),
+      })) as { suggestions: Array<{ sourceField: string; targetField: string; confidence: number }> };
+
+      // Merge suggestions with existing mappings — preserve user-edited rows
+      // whose targets already have a mapping.
+      const existing = new Map(mappings.map((m) => [m.targetField, m]));
+      const newlySuggestedTargets = new Set<string>();
+      for (const s of data.suggestions) {
+        if (!s.sourceField || !s.targetField) continue;
+        existing.set(s.targetField, { sourceField: s.sourceField, targetField: s.targetField });
+        newlySuggestedTargets.add(s.targetField);
+      }
+      setMappings([...existing.values()]);
+      setAiSuggestedTargets(newlySuggestedTargets);
+      setSaved(false);
+    } catch (err) {
+      setAiSuggestError(err instanceof Error ? err.message : "AI suggestion failed");
+    } finally {
+      setAiSuggesting(false);
+    }
+  };
 
   const load = useCallback(async () => {
     if (!provider) return;
@@ -167,6 +274,7 @@ export function ProviderFieldMappingModal({ open, onClose, provider, discoveredE
     });
     setDraggedField(null);
     setSaved(false);
+    setUserTouchedMapping(true);
   };
 
   // --- Click-to-map ---
@@ -182,11 +290,13 @@ export function ProviderFieldMappingModal({ open, onClose, provider, discoveredE
     });
     setSelectedSource(null);
     setSaved(false);
+    setUserTouchedMapping(true);
   };
 
   const removeMapping = (targetField: string) => {
     setMappings((prev) => prev.filter((m) => m.targetField !== targetField));
     setSaved(false);
+    setUserTouchedMapping(true);
   };
 
   const getMappedSource = (targetField: string) =>
@@ -300,6 +410,27 @@ export function ProviderFieldMappingModal({ open, onClose, provider, discoveredE
                 <Download className={`h-3.5 w-3.5 ${fetching ? "animate-pulse" : ""}`} />
                 {fetching ? "Fetching..." : hasFetched ? "Refresh Data" : "Fetch Live Data"}
               </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleAiSuggest}
+                disabled={
+                  aiSuggesting ||
+                  aiToolsConfigured === false ||
+                  !activeDiscovered ||
+                  (activeDiscovered?.fields?.length ?? 0) === 0
+                }
+                title={
+                  aiToolsConfigured === false
+                    ? "Configure an AI Tools key in Settings → AI Assistant first"
+                    : !activeDiscovered
+                    ? "Open this modal from Discovery to enable AI suggestions"
+                    : "Ask the AI Tools key to suggest field mappings"
+                }
+              >
+                <Sparkles className={`h-3.5 w-3.5 ${aiSuggesting ? "animate-pulse" : ""}`} />
+                {aiSuggesting ? "Thinking..." : "Suggest with AI"}
+              </Button>
               <Button variant="ghost" size="sm" onClick={handleAutoMap}>
                 <Wand2 className="h-3.5 w-3.5" />
                 Auto
@@ -310,6 +441,13 @@ export function ProviderFieldMappingModal({ open, onClose, provider, discoveredE
               </Button>
             </div>
           </div>
+
+          {aiSuggestError && (
+            <div className="rounded-lg border border-red-200 bg-red-50/50 px-3 py-2 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+              <p className="text-xs text-red-700 whitespace-pre-line">{aiSuggestError}</p>
+            </div>
+          )}
 
           {fetchError && (
             <div className="rounded-lg border border-red-200 bg-red-50/50 px-3 py-2 flex items-start gap-2">
@@ -339,9 +477,16 @@ export function ProviderFieldMappingModal({ open, onClose, provider, discoveredE
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_1fr] gap-6 items-start">
             {/* Source fields */}
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                {label} API Fields
-              </p>
+              <div className="mb-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  {label} API Fields
+                </p>
+                {activeDiscovered && (
+                  <p className="text-[11px] text-muted-foreground/80 mt-0.5">
+                    {activeDiscovered.apiName}
+                  </p>
+                )}
+              </div>
 
               {/* Endpoint pill bar — only shown when discoveredEndpoints were
                   passed in (i.e. the modal was opened from Discovery). Lets
@@ -496,9 +641,33 @@ export function ProviderFieldMappingModal({ open, onClose, provider, discoveredE
 
             {/* Target fields */}
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                Tokenear Fields
-              </p>
+              <div className="mb-3 space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Agent-Plutus Fields
+                </p>
+                {presets.length > 1 && (
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Preset
+                    </label>
+                    <select
+                      className="w-full h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      value={presetId ?? ""}
+                      onChange={(e) => handlePresetChange(e.target.value)}
+                    >
+                      {presets.map((p) => (
+                        <option key={p.id} value={p.id}>{p.label}</option>
+                      ))}
+                    </select>
+                    {presetId && (() => {
+                      const active = presets.find((p) => p.id === presetId);
+                      return active?.description ? (
+                        <p className="text-[10px] text-muted-foreground">{active.description}</p>
+                      ) : null;
+                    })()}
+                  </div>
+                )}
+              </div>
               <div className="space-y-1.5 max-h-[400px] overflow-y-auto pr-1">
                 {TARGET_FIELDS.map((tf) => {
                   const mappedSource = getMappedSource(tf.key);
@@ -530,6 +699,12 @@ export function ProviderFieldMappingModal({ open, onClose, provider, discoveredE
                         </div>
                         {mappedSource && (
                           <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                            {aiSuggestedTargets.has(tf.key) && (
+                              <Badge variant="info" className="text-[9px] py-0 px-1">
+                                <Sparkles className="h-2.5 w-2.5 mr-0.5" />
+                                AI
+                              </Badge>
+                            )}
                             <Badge variant="success" className="font-mono text-[10px]">
                               {mappedSource}
                             </Badge>

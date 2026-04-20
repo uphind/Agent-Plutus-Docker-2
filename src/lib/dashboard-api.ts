@@ -280,4 +280,39 @@ export const api = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+
+  // AI Tools (server-stored AI key for in-app suggestions)
+  getAiToolsConfig: () => apiFetch("/settings/ai-tools"),
+  saveAiToolsConfig: (input: { provider: string; model: string; apiKey: string; skipTest?: boolean }) =>
+    apiFetch("/settings/ai-tools", {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  deleteAiToolsConfig: () =>
+    apiFetch("/settings/ai-tools", { method: "DELETE" }),
+
+  // AI mapping suggestions
+  suggestMapping: (input: {
+    provider: string;
+    apiName: string;
+    endpointName: string;
+    sourceFields: Array<{ path: string; sample?: unknown }>;
+    targetFields: Array<{ key: string; label: string; description?: string; required?: boolean }>;
+  }) =>
+    apiFetch("/providers/ai-suggest-mapping", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  // AI usage tracker
+  getAiUsage: (days = 30, source = "chatbot") =>
+    apiFetch(`/settings/ai-usage?days=${days}&source=${source}`),
+
+  // Onboarding state
+  getOnboardingState: () => apiFetch("/settings/onboarding"),
+  setOnboardingState: (completed: boolean) =>
+    apiFetch("/settings/onboarding", {
+      method: "POST",
+      body: JSON.stringify({ completed }),
+    }),
 };

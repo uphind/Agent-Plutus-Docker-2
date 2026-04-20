@@ -20,6 +20,7 @@ export async function GET() {
       dirSyncIntervalHours: true,
       relinkIntervalHours: true,
       lastRelinkAt: true,
+      onboardingCompletedAt: true,
       _count: { select: { users: true, providerCredentials: true } },
     },
   });
@@ -45,6 +46,7 @@ export async function GET() {
     dirSyncIntervalHours: org.dirSyncIntervalHours,
     relinkIntervalHours: org.relinkIntervalHours,
     lastRelinkAt: org.lastRelinkAt?.toISOString() ?? null,
+    onboardingCompletedAt: org.onboardingCompletedAt?.toISOString() ?? null,
     userCount: org._count.users,
     providerCount: org._count.providerCredentials,
     orphanedRecordCount: orphanedCount,

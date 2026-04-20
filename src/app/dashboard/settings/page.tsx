@@ -2,16 +2,18 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { Header } from "@/components/layout/header";
 import { Tabs } from "@/components/ui/tabs";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Bot, Eye, EyeOff, Languages, Pencil, Check as CheckIcon, RefreshCw } from "lucide-react";
+import { Bot, Eye, EyeOff, Languages, Pencil, Check as CheckIcon, RefreshCw, Wrench, Sparkles, Trash2, BarChart3 } from "lucide-react";
 import { useTerminology } from "@/lib/terminology";
 import { DirectorySyncContent } from "@/app/dashboard/settings/graph/page";
 import { ProvidersContent } from "@/app/dashboard/providers/page";
+import { api } from "@/lib/dashboard-api";
 
 const LLM_PROVIDER_OPTIONS = [
   { value: "openai", label: "OpenAI" },
@@ -40,7 +42,7 @@ export function loadAiConfig(): AiAssistantConfig {
   return { provider: "openai", model: "gpt-4o-mini", apiKey: "" };
 }
 
-function saveAiConfig(config: AiAssistantConfig) {
+export function saveAiConfig(config: AiAssistantConfig) {
   localStorage.setItem("ai_assistant_config", JSON.stringify(config));
 }
 
@@ -208,17 +210,28 @@ function AiAssistantSettings() {
   }, [loadModels]);
 
   return (
+    <div className="space-y-6">
+    <div className="flex items-center justify-end -mb-2">
+      <Link
+        href="/dashboard/onboarding"
+        className="text-xs text-brand hover:text-brand-light font-medium inline-flex items-center gap-1.5"
+      >
+        <Sparkles className="h-3 w-3" />
+        Re-run onboarding wizard
+      </Link>
+    </div>
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
           <Bot className="h-4 w-4 text-muted-foreground" />
-          <CardTitle>AI Assistant</CardTitle>
+          <CardTitle>Chatbot key</CardTitle>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Configure an LLM to power the AI assistant on the Suggestions page.
-          Your API key is stored locally in your browser and sent directly to the provider — it is never saved on our server.
+          Configure an LLM to power the AI chatbot (the floating bubble in the bottom-right
+          corner). Your API key is stored locally in your browser and sent directly to the
+          provider — it is never saved on our server.
         </p>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -307,6 +320,301 @@ function AiAssistantSettings() {
         </div>
       </CardContent>
     </Card>
+
+    <ChatbotUsagePanel />
+
+    <AiToolsSettings />
+    </div>
+  );
+}
+
+function AiToolsSettings() {
+  const [provider, setProvider] = useState("openai");
+  const [model, setModel] = useState("gpt-4o-mini");
+  const [apiKey, setApiKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
+  const [configured, setConfigured] = useState<{ provider: string | null; model: string | null }>({
+    provider: null,
+    model: null,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+
+  useEffect(() => {
+    api
+      .getAiToolsConfig()
+      .then((data: { configured: boolean; provider: string | null; model: string | null }) => {
+        setConfigured({ provider: data.provider, model: data.model });
+        if (data.provider) setProvider(data.provider);
+        if (data.model) setModel(data.model);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSave = async () => {
+    if (!apiKey.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = (await api.saveAiToolsConfig({ provider, model, apiKey: apiKey.trim() })) as {
+        provider: string;
+        model: string;
+      };
+      setConfigured({ provider: res.provider, model: res.model });
+      setApiKey("");
+      setSavedAt(new Date());
+      setTimeout(() => setSavedAt(null), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save AI Tools key");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (typeof window !== "undefined" && !window.confirm("Remove the AI Tools key?")) return;
+    try {
+      await api.deleteAiToolsConfig();
+      setConfigured({ provider: null, model: null });
+    } catch {
+      // ignore
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Wrench className="h-4 w-4 text-muted-foreground" />
+            <CardTitle>AI Tools key (server-side)</CardTitle>
+          </div>
+          {configured.provider ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+              <Sparkles className="h-3 w-3" /> Configured · {configured.provider} · {configured.model}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+              Not configured
+            </span>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Powers in-app AI features that run on the server, like field-mapping suggestions in
+          the provider mapping modal. Stored encrypted in the database. Distinct from the
+          chatbot key above (which lives only in your browser).
+        </p>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Select
+            label="Provider"
+            options={LLM_PROVIDER_OPTIONS}
+            value={provider}
+            onChange={(e) => {
+              setProvider(e.target.value);
+              setModel(DEFAULT_MODELS[e.target.value] ?? model);
+            }}
+          />
+          <Input
+            label="Model"
+            placeholder="e.g. gpt-4o-mini"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+          />
+        </div>
+
+        <div className="relative">
+          <Input
+            label="API Key"
+            type={showKey ? "text" : "password"}
+            placeholder={configured.provider ? "•••••••••• (already configured — paste a new key to replace)" : "sk-..."}
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+          />
+          <button
+            type="button"
+            onClick={() => setShowKey(!showKey)}
+            className="absolute right-2.5 top-[34px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        </div>
+
+        {error && (
+          <p className="text-sm text-destructive whitespace-pre-line">{error}</p>
+        )}
+
+        <div className="flex items-center gap-3">
+          <Button onClick={handleSave} disabled={saving || !apiKey.trim()}>
+            {saving ? "Saving..." : configured.provider ? "Update key" : "Save AI Tools key"}
+          </Button>
+          {configured.provider && (
+            <Button variant="ghost" size="sm" onClick={handleDelete}>
+              <Trash2 className="h-3.5 w-3.5 text-destructive" />
+              Remove
+            </Button>
+          )}
+          {savedAt && (
+            <p className="text-sm text-emerald-600 font-medium">Saved successfully</p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ChatbotUsagePanel() {
+  const [days, setDays] = useState(30);
+  type UsageResponse = {
+    totals: { inputTokens: number; outputTokens: number; cachedTokens: number; requests: number; costUsd: number | null };
+    byDay: Array<{ date: string; inputTokens: number; outputTokens: number; requests: number; costUsd: number | null }>;
+    byModel: Array<{ provider: string; model: string; inputTokens: number; outputTokens: number; requests: number; costUsd: number | null }>;
+    providerReport?: { available: boolean; provider?: string; totalCostUsd?: number | null; note?: string };
+  };
+  const [data, setData] = useState<UsageResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    api
+      .getAiUsage(days, "chatbot")
+      .then((d: UsageResponse) => setData(d))
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, [days]);
+
+  const totals = data?.totals;
+  const maxDay = Math.max(1, ...(data?.byDay ?? []).map((d) => d.inputTokens + d.outputTokens));
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            <CardTitle>Chatbot usage</CardTitle>
+          </div>
+          <div className="flex items-center gap-1 bg-muted rounded-md p-0.5 text-xs">
+            {[7, 30, 90].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setDays(n)}
+                className={`px-2 py-0.5 rounded transition-colors ${
+                  days === n ? "bg-card shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {n}d
+              </button>
+            ))}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : !totals || totals.requests === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No chatbot calls yet in the last {days} days. Your usage will appear here once you
+            ask the floating chatbot a question.
+          </p>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <Stat label="Requests" value={totals.requests.toLocaleString()} />
+              <Stat label="Input tokens" value={totals.inputTokens.toLocaleString()} />
+              <Stat label="Output tokens" value={totals.outputTokens.toLocaleString()} />
+              <Stat
+                label="Estimated cost"
+                value={totals.costUsd != null ? `$${totals.costUsd.toFixed(4)}` : "—"}
+              />
+            </div>
+
+            {/* Tiny per-day bar chart */}
+            {data?.byDay && data.byDay.length > 0 && (
+              <div>
+                <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">
+                  Tokens per day
+                </p>
+                <div className="flex items-end gap-1 h-16">
+                  {data.byDay.map((d) => {
+                    const total = d.inputTokens + d.outputTokens;
+                    const h = (total / maxDay) * 100;
+                    return (
+                      <div
+                        key={d.date}
+                        className="flex-1 bg-brand/40 hover:bg-brand transition-colors rounded-sm min-w-[2px]"
+                        style={{ height: `${Math.max(h, 1)}%` }}
+                        title={`${d.date}: ${total.toLocaleString()} tokens · ${d.requests} req`}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {data?.byModel && data.byModel.length > 0 && (
+              <div className="rounded-md border border-border overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-muted/30 border-b border-border">
+                      <th className="text-left px-3 py-1.5 font-medium text-muted-foreground">Model</th>
+                      <th className="text-right px-3 py-1.5 font-medium text-muted-foreground">Req</th>
+                      <th className="text-right px-3 py-1.5 font-medium text-muted-foreground">In</th>
+                      <th className="text-right px-3 py-1.5 font-medium text-muted-foreground">Out</th>
+                      <th className="text-right px-3 py-1.5 font-medium text-muted-foreground">Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.byModel.map((m) => (
+                      <tr key={`${m.provider}-${m.model}`} className="border-b border-border last:border-0">
+                        <td className="px-3 py-1.5 font-mono">{m.provider} · {m.model}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{m.requests}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{m.inputTokens.toLocaleString()}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{m.outputTokens.toLocaleString()}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          {m.costUsd != null ? `$${m.costUsd.toFixed(4)}` : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {data?.providerReport?.available && (
+              <p className="text-[11px] text-muted-foreground">
+                Provider report (last {days} days, {data.providerReport.provider}):{" "}
+                <span className="font-mono">
+                  {data.providerReport.totalCostUsd != null
+                    ? `$${data.providerReport.totalCostUsd.toFixed(4)}`
+                    : "—"}
+                </span>
+                . {data.providerReport.note ?? ""}
+              </p>
+            )}
+
+            <p className="text-[10px] text-muted-foreground">
+              Token counts come from each chat response (real-time, accurate). Cost is computed
+              from a maintained model→price table, or from the official provider cost report
+              when an admin provider is connected on the Providers tab.
+            </p>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="text-base font-semibold tabular-nums">{value}</p>
+    </div>
   );
 }
 

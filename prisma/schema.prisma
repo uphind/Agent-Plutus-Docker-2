@@ -17,6 +17,7 @@ model Organization {
   dirSyncIntervalHours Int       @default(0) @map("dir_sync_interval_hours")
   relinkIntervalHours  Int       @default(0) @map("relink_interval_hours")
   lastRelinkAt         DateTime? @map("last_relink_at")
+  onboardingCompletedAt DateTime? @map("onboarding_completed_at")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
@@ -31,6 +32,8 @@ model Organization {
   terminologyOverrides TerminologyOverride[]
   graphConfig         GraphConfig?
   fieldMappings       FieldMapping[]
+  aiToolsConfig       AiToolsConfig?
+  aiUsageLogs         AiUsageLog[]
 
   @@map("organizations")
 }
@@ -301,4 +304,41 @@ model FieldMapping {
   @@unique([orgId, entityType, targetField])
   @@index([orgId])
   @@map("field_mappings")
+}
+
+/// Server-stored AI key used for in-app tools (mapping suggestions). Distinct
+/// from the chatbot key, which lives only in the user's browser localStorage.
+model AiToolsConfig {
+  id              String   @id @default(uuid())
+  orgId           String   @unique @map("org_id")
+  provider        String
+  model           String
+  encryptedApiKey String   @map("encrypted_api_key")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("ai_tools_config")
+}
+
+/// Per-call log of AI calls (chatbot + AI tools) for the usage tracker.
+/// Tokens come from each provider's response; cost is computed via the
+/// model->price table or pulled from the official cost API when available.
+model AiUsageLog {
+  id           String   @id @default(uuid())
+  orgId        String   @map("org_id")
+  source       String
+  provider     String
+  model        String
+  inputTokens  Int      @default(0) @map("input_tokens")
+  outputTokens Int      @default(0) @map("output_tokens")
+  cachedTokens Int      @default(0) @map("cached_tokens")
+  costUsd      Decimal? @map("cost_usd") @db.Decimal(12, 6)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, source, createdAt])
+  @@map("ai_usage_logs")
 }

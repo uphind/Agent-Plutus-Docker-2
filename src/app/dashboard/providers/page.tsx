@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { Modal } from "@/components/ui/modal";
+import { OnboardingWizard } from "@/components/onboarding/wizard";
 import { ProviderFieldMappingModal } from "@/components/provider-field-mapping-modal";
 import { useViewPreference } from "@/lib/use-view-preference";
 import { useRequestedIntegrations } from "@/lib/requested-integrations";
@@ -73,6 +74,7 @@ export function ProvidersContent({ showHeader = true }: ProvidersContentProps) {
   const [disclaimerDismissed, setDisclaimerDismissed] = useState(false);
   const [mappingProvider, setMappingProvider] = useState<string | null>(null);
   const [layout, setLayout] = useViewPreference<"table" | "cards">("providers.layout", "table");
+  const [showWizard, setShowWizard] = useState(false);
 
   // Curated list of providers the user wants visible. Defaults to all known
   // providers so nothing is hidden until the user explicitly hides one.
@@ -322,13 +324,21 @@ export function ProvidersContent({ showHeader = true }: ProvidersContentProps) {
         <div className="flex items-center gap-2">
           <Button
             size="sm"
+            onClick={() => setShowWizard(true)}
+            title="Guided wizard: paste a key, run Discovery, save & map in one flow"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Add provider (guided)
+          </Button>
+          <Button
+            size="sm"
             variant="secondary"
             onClick={() => setShowAddModal(true)}
             disabled={hiddenProviders.length === 0}
             title={hiddenProviders.length === 0 ? "All known providers already shown" : "Add a provider to your list"}
           >
             <Plus className="h-3.5 w-3.5" />
-            Provider
+            Quick add
           </Button>
           <Button
             size="sm"
@@ -747,6 +757,24 @@ export function ProvidersContent({ showHeader = true }: ProvidersContentProps) {
               </Button>
             </div>
           </div>
+        </Modal>
+      )}
+
+      {showWizard && (
+        <Modal
+          open={showWizard}
+          onClose={() => setShowWizard(false)}
+          title="Add a provider"
+          className="max-w-3xl"
+        >
+          <OnboardingWizard
+            initialStep="add-provider"
+            onComplete={() => {
+              setShowWizard(false);
+              loadProviders();
+            }}
+            onClose={() => setShowWizard(false)}
+          />
         </Modal>
       )}
     </div>
