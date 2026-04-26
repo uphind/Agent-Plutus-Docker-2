@@ -8,6 +8,8 @@ export interface RenderedTemplate {
   html: string;
   /** Slack Block Kit blocks suitable for chat.postMessage / incoming webhook. */
   slackBlocks: unknown[];
+  /** Microsoft Teams Adaptive Card (schema 1.5) — used by both webhook and bot. */
+  teamsCard: Record<string, unknown>;
 }
 
 const SEVERITY_HEX: Record<AlertSeverity, string> = {
@@ -128,7 +130,52 @@ export function renderTemplate(
     },
   ];
 
-  return { subject: copy.subject, text, html, slackBlocks };
+  const teamsCard: Record<string, unknown> = {
+    type: "AdaptiveCard",
+    $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+    version: "1.5",
+    msteams: { width: "Full" },
+    body: [
+      {
+        type: "TextBlock",
+        text: alert.severity.toUpperCase(),
+        size: "Small",
+        weight: "Bolder",
+        color: alert.severity === "critical" ? "Attention" : alert.severity === "warning" ? "Warning" : "Accent",
+        spacing: "None",
+      },
+      {
+        type: "TextBlock",
+        text: copy.intro,
+        size: "Large",
+        weight: "Bolder",
+        wrap: true,
+        spacing: "Small",
+      },
+      {
+        type: "TextBlock",
+        text: copy.body,
+        wrap: true,
+        spacing: "Small",
+      },
+      {
+        type: "FactSet",
+        facts: [
+          { title: alert.entityType.charAt(0).toUpperCase() + alert.entityType.slice(1), value: alert.entityName },
+          { title: "Severity", value: alert.severity },
+        ],
+      },
+    ],
+    actions: [
+      {
+        type: "Action.OpenUrl",
+        title: "View in dashboard",
+        url: link,
+      },
+    ],
+  };
+
+  return { subject: copy.subject, text, html, slackBlocks, teamsCard };
 }
 
 export function severityHex(s: AlertSeverity): string {

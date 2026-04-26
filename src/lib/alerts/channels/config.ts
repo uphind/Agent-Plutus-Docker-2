@@ -33,10 +33,30 @@ export interface SlackBotChannelConfig {
   mode: "channel" | "dm_by_email";
 }
 
+export interface TeamsWebhookChannelConfig {
+  kind: "teams_webhook";
+  /** Encrypted Power Automate Workflow URL (replaces deprecated Office 365 Connectors). */
+  urlEncrypted: string;
+  /** Display label such as "#cost-alerts" or "Engineering channel". */
+  channelLabel?: string;
+}
+
+export interface TeamsBotChannelConfig {
+  kind: "teams_bot";
+  /** Bot Framework conversation id (matches `teams_conversations.conversation_id`). */
+  conversationId: string;
+  /** Cached display name (channel/group title or DM partner). Refreshed on use. */
+  conversationName?: string;
+  /** "channel" | "personal" | "groupChat" — duplicated here for UI convenience. */
+  conversationType?: "channel" | "personal" | "groupChat";
+}
+
 export type AlertChannelConfig =
   | SmtpChannelConfig
   | SlackWebhookChannelConfig
-  | SlackBotChannelConfig;
+  | SlackBotChannelConfig
+  | TeamsWebhookChannelConfig
+  | TeamsBotChannelConfig;
 
 export interface SmtpInput {
   host: string;
@@ -82,6 +102,27 @@ export function buildSlackBotConfig(input: {
   };
 }
 
+export function buildTeamsWebhookConfig(url: string, channelLabel?: string): TeamsWebhookChannelConfig {
+  return {
+    kind: "teams_webhook",
+    urlEncrypted: encrypt(url),
+    channelLabel,
+  };
+}
+
+export function buildTeamsBotConfig(input: {
+  conversationId: string;
+  conversationName?: string;
+  conversationType?: "channel" | "personal" | "groupChat";
+}): TeamsBotChannelConfig {
+  return {
+    kind: "teams_bot",
+    conversationId: input.conversationId,
+    conversationName: input.conversationName,
+    conversationType: input.conversationType,
+  };
+}
+
 /**
  * Strip secrets from a channel config for client display. Returns a safe shape
  * with masked passwords and partially-masked webhook URLs.
@@ -117,6 +158,25 @@ export function publicChannelConfig(config: unknown): Record<string, unknown> {
       mode: c.mode,
       channelId: c.channelId,
       channelName: c.channelName,
+    };
+  }
+  if (c.kind === "teams_webhook") {
+    let masked = "outlook.office.com/webhook/…";
+    try {
+      const url = decrypt(c.urlEncrypted);
+      const u = new URL(url);
+      masked = `${u.host}${u.pathname.split("/").slice(0, 3).join("/")}/•••`;
+    } catch {
+      // ignore decrypt failure; keep generic mask
+    }
+    return { kind: c.kind, channelLabel: c.channelLabel, masked };
+  }
+  if (c.kind === "teams_bot") {
+    return {
+      kind: c.kind,
+      conversationId: c.conversationId,
+      conversationName: c.conversationName,
+      conversationType: c.conversationType,
     };
   }
   return {};

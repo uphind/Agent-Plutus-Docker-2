@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Bell, Mail, Slack, Plus, Trash2, Send, Power, Check, AlertCircle, Settings, ExternalLink } from "lucide-react";
+import { Bell, Mail, Slack, Plus, Trash2, Send, Power, Check, AlertCircle, Settings, ExternalLink, MessageSquare, Download } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,7 @@ import { Select } from "@/components/ui/select";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 
-type AlertChannelKind = "email_smtp" | "slack_webhook" | "slack_bot";
+type AlertChannelKind = "email_smtp" | "slack_webhook" | "slack_bot" | "teams_webhook" | "teams_bot";
 
 type AlertTriggerKind =
   | "over_budget"
@@ -84,6 +84,28 @@ interface SlackOAuthConfigStatus {
   envFallbackAvailable: boolean;
 }
 
+interface TeamsStatus {
+  configured: boolean;
+  settings: {
+    microsoftAppId: string;
+    tenantId: string | null;
+    publicBaseUrl: string | null;
+    createdAt: string;
+    updatedAt: string;
+  } | null;
+  conversationCount: number;
+}
+
+interface TeamsConversation {
+  id: string;
+  conversationId: string;
+  conversationType: "channel" | "personal" | "groupChat";
+  displayName: string | null;
+  teamName: string | null;
+  lastSeenAt: string;
+  createdAt: string;
+}
+
 interface DepartmentLite { id: string; name: string }
 interface TeamLite { id: string; name: string; departmentId: string }
 
@@ -118,22 +140,25 @@ export function AlertsSettings() {
   const [deliveries, setDeliveries] = useState<DeliveryRow[]>([]);
   const [slackStatus, setSlackStatus] = useState<SlackInstallStatus | null>(null);
   const [oauthConfig, setOauthConfig] = useState<SlackOAuthConfigStatus | null>(null);
+  const [teamsStatus, setTeamsStatus] = useState<TeamsStatus | null>(null);
   const [depts, setDepts] = useState<DepartmentLite[]>([]);
   const [teams, setTeams] = useState<TeamLite[]>([]);
   const [setupEmailOpen, setSetupEmailOpen] = useState(false);
   const [setupSlackOpen, setSetupSlackOpen] = useState(false);
+  const [setupTeamsOpen, setSetupTeamsOpen] = useState(false);
   const [showAddRule, setShowAddRule] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const reloadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [c, r, d, s, oc, dep, tm] = await Promise.all([
+      const [c, r, d, s, oc, ts, dep, tm] = await Promise.all([
         fetch("/api/v1/alerts/channels").then((r) => r.json()),
         fetch("/api/v1/alerts/rules").then((r) => r.json()),
         fetch("/api/v1/alerts/deliveries?limit=50").then((r) => r.json()),
         fetch("/api/v1/integrations/slack").then((r) => r.json()),
         fetch("/api/v1/integrations/slack/oauth/config").then((r) => r.json()),
+        fetch("/api/v1/integrations/teams").then((r) => r.json()),
         fetch("/api/v1/departments").then((r) => r.json()).catch(() => ({ departments: [] })),
         fetch("/api/v1/teams").then((r) => r.json()).catch(() => ({ teams: [] })),
       ]);
@@ -142,6 +167,7 @@ export function AlertsSettings() {
       setDeliveries(d.deliveries ?? []);
       setSlackStatus(s);
       setOauthConfig(oc);
+      setTeamsStatus(ts);
       setDepts((dep.departments ?? []).map((x: { id: string; name: string }) => ({ id: x.id, name: x.name })));
       setTeams((tm.teams ?? []).map((x: { id: string; name: string; departmentId: string }) => ({ id: x.id, name: x.name, departmentId: x.departmentId })));
     } finally {
@@ -177,8 +203,11 @@ export function AlertsSettings() {
               <Button size="sm" variant="secondary" onClick={() => setSetupEmailOpen(true)}>
                 <Mail className="h-3.5 w-3.5" /> Setup Email
               </Button>
-              <Button size="sm" onClick={() => setSetupSlackOpen(true)}>
+              <Button size="sm" variant="secondary" onClick={() => setSetupSlackOpen(true)}>
                 <Slack className="h-3.5 w-3.5" /> Setup Slack
+              </Button>
+              <Button size="sm" onClick={() => setSetupTeamsOpen(true)}>
+                <MessageSquare className="h-3.5 w-3.5" /> Setup Teams
               </Button>
             </div>
           </div>
@@ -191,7 +220,7 @@ export function AlertsSettings() {
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : channels.length === 0 ? (
             <p className="text-sm text-muted-foreground italic">
-              No channels yet. Click <strong>Setup Email</strong> or <strong>Setup Slack</strong> above to add one.
+              No channels yet. Click <strong>Setup Email</strong>, <strong>Setup Slack</strong>, or <strong>Setup Teams</strong> above to add one.
             </p>
           ) : (
             <ChannelsTable channels={channels} onChange={reloadAll} />
@@ -260,6 +289,16 @@ export function AlertsSettings() {
           reloadAll={reloadAll}
         />
       )}
+      {setupTeamsOpen && (
+        <SetupTeamsModal
+          open={setupTeamsOpen}
+          onClose={() => setSetupTeamsOpen(false)}
+          onCreated={async () => { await reloadAll(); }}
+          onClosed={() => setSetupTeamsOpen(false)}
+          teamsStatus={teamsStatus}
+          reloadAll={reloadAll}
+        />
+      )}
       {showAddRule && (
         <AddRuleModal
           open={showAddRule}
@@ -277,6 +316,9 @@ export function AlertsSettings() {
 
 function ChannelKindIcon({ kind }: { kind: AlertChannelKind }) {
   if (kind === "email_smtp") return <Mail className="h-4 w-4 text-muted-foreground" />;
+  if (kind === "teams_webhook" || kind === "teams_bot") {
+    return <MessageSquare className="h-4 w-4 text-muted-foreground" />;
+  }
   return <Slack className="h-4 w-4 text-muted-foreground" />;
 }
 
@@ -407,6 +449,20 @@ function ChannelDetail({ config, kind }: { config: Record<string, unknown>; kind
         {config.channelName ? ` → #${String(config.channelName)}` : config.channelId ? ` → ${String(config.channelId)}` : ""}
       </div>
     );
+  }
+  if (kind === "teams_webhook") {
+    return (
+      <div className="font-mono">
+        {String(config.masked ?? "")}
+        {config.channelLabel ? ` → ${String(config.channelLabel)}` : ""}
+      </div>
+    );
+  }
+  if (kind === "teams_bot") {
+    const t = String(config.conversationType ?? "channel");
+    const name = config.conversationName ? String(config.conversationName) : String(config.conversationId ?? "");
+    const prefix = t === "channel" ? "#" : t === "groupChat" ? "👥 " : "👤 ";
+    return <div className="font-mono">{prefix}{name}</div>;
   }
   return null;
 }
@@ -922,6 +978,486 @@ function SlackWebhookSetupTab({
         value={url}
         onChange={(e) => setUrl(e.target.value)}
         placeholder="https://hooks.slack.com/services/T…/B…/…"
+      />
+      <Input
+        label="Channel label (optional)"
+        value={label}
+        onChange={(e) => setLabel(e.target.value)}
+        placeholder="#cost-alerts"
+      />
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <div className="flex justify-end gap-2 pt-2 border-t border-border">
+        <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+        <Button onClick={handleSave} disabled={saving || !name || !url}>
+          {saving ? "Saving…" : "Save webhook channel"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Microsoft Teams setup ───────────────────────────────────────────────────
+
+type TeamsTab = "bot" | "webhook";
+
+function SetupTeamsModal({
+  open,
+  onClose,
+  onCreated,
+  onClosed,
+  teamsStatus,
+  reloadAll,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: () => Promise<void> | void;
+  onClosed: () => void;
+  teamsStatus: TeamsStatus | null;
+  reloadAll: () => Promise<void> | void;
+}) {
+  const [tab, setTab] = useState<TeamsTab>("bot");
+  return (
+    <Modal open={open} onClose={onClose} title="Setup Microsoft Teams" className="max-w-2xl">
+      <div className="space-y-4">
+        <div className="flex gap-1 border-b border-border">
+          <button
+            type="button"
+            onClick={() => setTab("bot")}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === "bot" ? "border-brand text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <MessageSquare className="h-3.5 w-3.5 inline mr-1.5" /> Bot (channels, chats, group chats)
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("webhook")}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === "webhook" ? "border-brand text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Send className="h-3.5 w-3.5 inline mr-1.5" /> Workflow webhook
+          </button>
+        </div>
+
+        {tab === "bot" ? (
+          <TeamsBotSetupTab
+            teamsStatus={teamsStatus}
+            onCreated={onCreated}
+            onClosed={onClosed}
+            reloadAll={reloadAll}
+          />
+        ) : (
+          <TeamsWebhookSetupTab
+            onCreated={async () => {
+              await onCreated();
+              onClosed();
+            }}
+            onCancel={onClose}
+          />
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function TeamsBotSetupTab({
+  teamsStatus,
+  onCreated,
+  onClosed,
+  reloadAll,
+}: {
+  teamsStatus: TeamsStatus | null;
+  onCreated: () => Promise<void> | void;
+  onClosed: () => void;
+  reloadAll: () => Promise<void> | void;
+}) {
+  const credsReady = Boolean(teamsStatus?.configured);
+  const hasConversations = (teamsStatus?.conversationCount ?? 0) > 0;
+  const [editRequested, setEditRequested] = useState(false);
+  const editingCreds = editRequested || !credsReady;
+
+  return (
+    <div className="space-y-4">
+      <SetupStep number={1} title="Microsoft App credentials" done={credsReady && !editingCreds}>
+        {editingCreds ? (
+          <TeamsCredsForm
+            initial={teamsStatus?.settings ?? null}
+            onSaved={async () => {
+              await reloadAll();
+              setEditRequested(false);
+            }}
+            onCancel={credsReady ? () => setEditRequested(false) : undefined}
+          />
+        ) : (
+          <div className="flex items-center justify-between gap-2 text-sm">
+            <div>
+              <p>
+                Microsoft App ID: <span className="font-mono text-xs">{teamsStatus?.settings?.microsoftAppId}</span>
+              </p>
+              {teamsStatus?.settings?.tenantId && (
+                <p className="text-xs text-muted-foreground">
+                  Tenant: <span className="font-mono">{teamsStatus.settings.tenantId}</span>
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Public base URL: <span className="font-mono">{teamsStatus?.settings?.publicBaseUrl ?? "(from server env)"}</span>
+              </p>
+            </div>
+            <Button size="sm" variant="ghost" onClick={() => setEditRequested(true)}>
+              <Settings className="h-3.5 w-3.5" /> Edit
+            </Button>
+          </div>
+        )}
+      </SetupStep>
+
+      <SetupStep number={2} title="Install the Agent Plutus app in Teams" done={hasConversations} disabled={!credsReady || editingCreds}>
+        {!credsReady ? (
+          <p className="text-xs text-muted-foreground italic">Save credentials first.</p>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Download the Teams app package below and upload it to <strong>Teams Admin Center → Manage apps → Upload new app</strong>{" "}
+              (or sideload it for a single team via <strong>Apps → Manage your apps → Upload an app</strong>). Once
+              installed, add the bot to any channel, chat, or group chat where you want alerts.
+            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <a href="/api/v1/integrations/teams/manifest" download>
+                <Button size="sm">
+                  <Download className="h-3.5 w-3.5" /> Download Teams app (.zip)
+                </Button>
+              </a>
+              <a
+                href="https://admin.teams.microsoft.com/policies/manage-apps"
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-muted-foreground inline-flex items-center gap-1 hover:text-foreground"
+              >
+                Open Teams Admin Center <ExternalLink className="h-3 w-3" />
+              </a>
+              <Button size="sm" variant="ghost" onClick={() => reloadAll()}>
+                Refresh status
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground italic">
+              The bot reports back to this server when added — that&apos;s why we need a public URL Microsoft can reach.
+              {teamsStatus?.conversationCount ? ` Detected ${teamsStatus.conversationCount} conversation(s) so far.` : " No conversations registered yet."}
+            </p>
+          </div>
+        )}
+      </SetupStep>
+
+      <SetupStep number={3} title="Pick a destination" done={false} disabled={!hasConversations}>
+        {hasConversations ? (
+          <TeamsBotChannelForm
+            onCreated={async () => {
+              await onCreated();
+              onClosed();
+            }}
+          />
+        ) : (
+          <p className="text-xs text-muted-foreground italic">
+            Add the bot to at least one Teams channel, chat, or group chat first, then click <strong>Refresh status</strong>.
+          </p>
+        )}
+      </SetupStep>
+
+      {credsReady && (
+        <div className="pt-2 border-t border-border flex justify-end">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={async () => {
+              if (!confirm("Disconnect Teams? This deletes saved credentials and forgets all known conversations.")) return;
+              await fetch("/api/v1/integrations/teams/settings", { method: "DELETE" });
+              await reloadAll();
+            }}
+          >
+            <Power className="h-3.5 w-3.5 text-destructive" /> Disconnect Teams
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TeamsCredsForm({
+  initial,
+  onSaved,
+  onCancel,
+}: {
+  initial: TeamsStatus["settings"];
+  onSaved: () => Promise<void> | void;
+  onCancel?: () => void;
+}) {
+  const defaultBase =
+    initial?.publicBaseUrl ??
+    (typeof window !== "undefined" ? window.location.origin : "");
+  const [microsoftAppId, setMicrosoftAppId] = useState(initial?.microsoftAppId ?? "");
+  const [microsoftAppPassword, setMicrosoftAppPassword] = useState("");
+  const [tenantId, setTenantId] = useState(initial?.tenantId ?? "");
+  const [publicBaseUrl, setPublicBaseUrl] = useState(defaultBase);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    setError(null);
+    setSaving(true);
+    try {
+      const res = await fetch("/api/v1/integrations/teams/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          microsoftAppId,
+          microsoftAppPassword,
+          tenantId: tenantId || null,
+          publicBaseUrl: publicBaseUrl || null,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error ?? "Save failed");
+      }
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const messagingEndpoint = publicBaseUrl
+    ? `${publicBaseUrl.replace(/\/$/, "")}/api/v1/integrations/teams/messages`
+    : "";
+
+  return (
+    <div className="space-y-2">
+      <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+        <p className="font-semibold mb-1">How to get these (one-time, ~5 minutes):</p>
+        <ol className="list-decimal pl-4 space-y-0.5">
+          <li>
+            Open{" "}
+            <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noreferrer" className="underline inline-flex items-center gap-0.5">
+              Azure → App registrations <ExternalLink className="h-3 w-3" />
+            </a>
+            {" "}→ <strong>New registration</strong>. Pick <em>Multitenant</em> (or <em>Single tenant</em> if you only want your own org). No redirect URI needed.
+          </li>
+          <li>
+            On the new app: <strong>Certificates &amp; secrets → New client secret</strong>. Copy the <em>Value</em> immediately.
+          </li>
+          <li>
+            <strong>Overview</strong> page: copy the <em>Application (client) ID</em>.
+          </li>
+          <li>
+            Now create the bot resource:{" "}
+            <a href="https://portal.azure.com/#create/Microsoft.AzureBot" target="_blank" rel="noreferrer" className="underline inline-flex items-center gap-0.5">
+              Create an Azure Bot <ExternalLink className="h-3 w-3" />
+            </a>
+            . Pick <em>Use existing app registration</em>, paste the App ID. After creation, on the bot&apos;s <strong>Configuration</strong> page set <em>Messaging endpoint</em> to:
+            {messagingEndpoint && (
+              <span className="block mt-0.5 font-mono break-all bg-amber-100 px-1.5 py-0.5 rounded text-[10px]">{messagingEndpoint}</span>
+            )}
+          </li>
+          <li>
+            On the bot, <strong>Channels → Microsoft Teams</strong> → enable.
+          </li>
+        </ol>
+      </div>
+      <Input
+        label="Microsoft App ID (Application (client) ID)"
+        value={microsoftAppId}
+        onChange={(e) => setMicrosoftAppId(e.target.value)}
+        placeholder="00000000-0000-0000-0000-000000000000"
+      />
+      <Input
+        label="Microsoft App password (client secret value)"
+        type="password"
+        value={microsoftAppPassword}
+        onChange={(e) => setMicrosoftAppPassword(e.target.value)}
+        placeholder={initial ? "•••••••• (paste again to replace)" : ""}
+      />
+      <Input
+        label="Tenant ID (optional, only for single-tenant bots)"
+        value={tenantId}
+        onChange={(e) => setTenantId(e.target.value)}
+        placeholder="00000000-0000-0000-0000-000000000000"
+      />
+      <Input
+        label="Public base URL of this Agent Plutus deployment"
+        value={publicBaseUrl}
+        onChange={(e) => setPublicBaseUrl(e.target.value)}
+        placeholder="https://alerts.your-company.com"
+      />
+      <p className="text-[11px] text-muted-foreground">
+        Teams will POST activities to <code>{messagingEndpoint || "<base>/api/v1/integrations/teams/messages"}</code>. Microsoft requires HTTPS (or use <code>http://localhost</code> with the Bot Framework Emulator).
+      </p>
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <div className="flex justify-end gap-2 pt-1">
+        {onCancel && (
+          <Button variant="ghost" size="sm" onClick={onCancel}>
+            Cancel
+          </Button>
+        )}
+        <Button
+          size="sm"
+          onClick={handleSave}
+          disabled={saving || !microsoftAppId || !microsoftAppPassword || !publicBaseUrl}
+        >
+          {saving ? "Saving…" : "Save credentials"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function TeamsBotChannelForm({ onCreated }: { onCreated: () => Promise<void> | void }) {
+  const [name, setName] = useState("Teams alerts");
+  const [conversations, setConversations] = useState<TeamsConversation[]>([]);
+  const [conversationId, setConversationId] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    fetch("/api/v1/integrations/teams/conversations")
+      .then((r) => r.json())
+      .then((d) => {
+        const list: TeamsConversation[] = d.conversations ?? [];
+        setConversations(list);
+        if (list[0]?.conversationId) setConversationId(list[0].conversationId);
+      })
+      .catch(() => setConversations([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    setError(null);
+    setSaving(true);
+    try {
+      const sel = conversations.find((c) => c.conversationId === conversationId);
+      const res = await fetch("/api/v1/alerts/channels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "teams_bot",
+          name,
+          conversationId,
+          conversationName: sel?.displayName ?? sel?.teamName ?? undefined,
+          conversationType: sel?.conversationType,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error ?? "Save failed");
+      }
+      await onCreated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const labelFor = (c: TeamsConversation): string => {
+    const prefix = c.conversationType === "channel" ? "# " : c.conversationType === "groupChat" ? "👥 " : "👤 ";
+    const main = c.displayName ?? c.conversationId;
+    const team = c.teamName ? ` (${c.teamName})` : "";
+    return `${prefix}${main}${team}`;
+  };
+
+  return (
+    <div className="space-y-2">
+      <Input label="Display name" value={name} onChange={(e) => setName(e.target.value)} />
+      {loading ? (
+        <p className="text-xs text-muted-foreground">Loading conversations…</p>
+      ) : conversations.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic">
+          No conversations yet. Add the bot to a Teams channel, chat, or group chat first.
+        </p>
+      ) : (
+        <Select
+          label="Destination"
+          value={conversationId}
+          onChange={(e) => setConversationId(e.target.value)}
+          options={conversations.map((c) => ({ value: c.conversationId, label: labelFor(c) }))}
+        />
+      )}
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <div className="flex justify-end pt-1">
+        <Button size="sm" onClick={handleSave} disabled={saving || !name || !conversationId}>
+          {saving ? "Saving…" : "Save Teams channel"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function TeamsWebhookSetupTab({
+  onCreated,
+  onCancel,
+}: {
+  onCreated: () => Promise<void> | void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState("Teams webhook");
+  const [url, setUrl] = useState("");
+  const [label, setLabel] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    setError(null);
+    setSaving(true);
+    try {
+      const res = await fetch("/api/v1/alerts/channels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "teams_webhook",
+          name,
+          url,
+          channelLabel: label || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error ?? "Save failed");
+      }
+      await onCreated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+        <p className="font-semibold mb-1">How to get a Workflow webhook URL (~2 minutes, no Azure):</p>
+        <ol className="list-decimal pl-4 space-y-0.5">
+          <li>
+            In Teams, click <strong>⋯</strong> next to the channel you want alerts in → <strong>Workflows</strong>.
+          </li>
+          <li>
+            Search for &quot;<em>Post to a channel when a webhook request is received</em>&quot; → <strong>Add</strong>.
+          </li>
+          <li>
+            Sign in if prompted, click <strong>Next</strong>, then <strong>Add workflow</strong>.
+          </li>
+          <li>Copy the URL Teams shows you and paste it below.</li>
+        </ol>
+        <p className="mt-1 italic">
+          Workflow webhooks only post to channels — for 1:1 chats and group chats, use the Bot tab.
+        </p>
+      </div>
+      <Input label="Display name" value={name} onChange={(e) => setName(e.target.value)} />
+      <Input
+        label="Workflow webhook URL"
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        placeholder="https://prod-…westus.logic.azure.com/workflows/…/triggers/manual/run?api-version=…"
       />
       <Input
         label="Channel label (optional)"

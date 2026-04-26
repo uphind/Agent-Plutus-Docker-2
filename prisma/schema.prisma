@@ -39,6 +39,8 @@ model Organization {
   alertDeliveries     AlertDelivery[]
   slackInstallation   SlackInstallation?
   slackOAuthSettings  SlackOAuthSettings?
+  teamsBotSettings    TeamsBotSettings?
+  teamsConversations  TeamsConversation[]
 
   @@map("organizations")
 }
@@ -358,6 +360,8 @@ enum AlertChannelKind {
   email_smtp
   slack_webhook
   slack_bot
+  teams_webhook
+  teams_bot
 }
 
 enum AlertTriggerKind {
@@ -473,4 +477,63 @@ model SlackInstallation {
   organization        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("slack_installations")
+}
+
+/// Microsoft Teams Bot Framework credentials. The user creates an Azure AD App
+/// Registration (a.k.a. Microsoft Entra App) plus a client secret, and pastes
+/// the App ID and secret here. These are used both to validate inbound
+/// activities (Microsoft signs requests with a JWT we verify against
+/// `microsoftAppId` as audience) and to mint outbound bearer tokens for
+/// proactive messaging.
+model TeamsBotSettings {
+  id                          String   @id @default(uuid())
+  orgId                       String   @unique @map("org_id")
+  microsoftAppId              String   @map("microsoft_app_id")
+  microsoftAppPasswordEncrypted String @map("microsoft_app_password_encrypted")
+  /// Optional Azure AD tenant id for single-tenant bots ("MultiTenant" otherwise).
+  tenantId                    String?  @map("tenant_id")
+  /// Public base URL of *this* Agent Plutus deployment. Used to render the
+  /// `messagingEndpoint` in the generated Teams app manifest. Falls back to
+  /// APP_BASE_URL/NEXTAUTH_URL when empty.
+  publicBaseUrl               String?  @map("public_base_url")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  organization                Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("teams_bot_settings")
+}
+
+/// Every Teams scope (channel, 1:1 chat, group chat) the bot has been added
+/// to. Populated when Microsoft delivers a `conversationUpdate` activity with
+/// `membersAdded` containing the bot. Used to power the channel picker in
+/// settings and to address proactive messages.
+model TeamsConversation {
+  id               String   @id @default(uuid())
+  orgId            String   @map("org_id")
+  /// Bot Framework conversation id, e.g. `19:meeting_…@thread.v2` for channels.
+  conversationId   String   @map("conversation_id")
+  /// "channel" | "personal" | "groupChat"
+  conversationType String   @map("conversation_type")
+  /// Channel/group title, or the user's name for 1:1 chats.
+  displayName      String?  @map("display_name")
+  /// Team title (for "channel" conversations) or empty.
+  teamName         String?  @map("team_name")
+  /// Azure AD tenant id of the conversation.
+  tenantId         String?  @map("tenant_id")
+  /// `https://smba.trafficmanager.net/<region>/` — used as the base URL for
+  /// proactive POSTs.
+  serviceUrl       String   @map("service_url")
+  /// "msteams" almost always.
+  channelId        String   @default("msteams") @map("channel_id")
+  /// Last activity addressed at this conversation (for diagnostics).
+  lastSeenAt       DateTime @default(now()) @map("last_seen_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  organization     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, conversationId])
+  @@index([orgId])
+  @@map("teams_conversations")
 }

@@ -8,10 +8,14 @@ import {
   type SmtpChannelConfig,
   type SlackBotChannelConfig,
   type SlackWebhookChannelConfig,
+  type TeamsWebhookChannelConfig,
+  type TeamsBotChannelConfig,
 } from "./channels/config";
 import { sendEmail } from "./channels/email";
 import { postWebhook } from "./channels/slack-webhook";
 import { postChannel as slackPostChannel, postUserByEmail as slackPostDm } from "./channels/slack-bot";
+import { postTeamsWebhook } from "./channels/teams-webhook";
+import { postTeamsConversation } from "./channels/teams-bot";
 
 export interface AlertRuleFilter {
   departmentIds?: string[];
@@ -146,6 +150,52 @@ async function dispatchToChannel(opts: {
     }
     const r = await postWebhook(config as SlackWebhookChannelConfig, { text: tmpl.text, blocks: tmpl.slackBlocks });
     attempts.push({ channelId: opts.channel.id, channelKind: opts.channel.kind, recipient, status: r.status, error: r.error });
+    return attempts;
+  }
+
+  if (opts.channel.kind === AlertChannelKind.teams_webhook && config.kind === "teams_webhook") {
+    const cfg = config as TeamsWebhookChannelConfig;
+    const recipient = cfg.channelLabel ?? `teams-webhook:${opts.channel.id}`;
+    const dup = await isDuplicate({
+      orgId: opts.orgId,
+      ruleId: opts.rule.id,
+      channelId: opts.channel.id,
+      trigger: opts.rule.trigger,
+      entityId: opts.alert.entityId,
+      recipient,
+      windowHours: opts.rule.throttleHours,
+    });
+    if (dup) {
+      attempts.push({ channelId: opts.channel.id, channelKind: opts.channel.kind, recipient, status: "suppressed" });
+      return attempts;
+    }
+    const r = await postTeamsWebhook(cfg, { text: tmpl.text, card: tmpl.teamsCard });
+    attempts.push({ channelId: opts.channel.id, channelKind: opts.channel.kind, recipient, status: r.status, error: r.error });
+    return attempts;
+  }
+
+  if (opts.channel.kind === AlertChannelKind.teams_bot && config.kind === "teams_bot") {
+    const cfg = config as TeamsBotChannelConfig;
+    const recipient = cfg.conversationName ?? cfg.conversationId;
+    const dup = await isDuplicate({
+      orgId: opts.orgId,
+      ruleId: opts.rule.id,
+      channelId: opts.channel.id,
+      trigger: opts.rule.trigger,
+      entityId: opts.alert.entityId,
+      recipient,
+      windowHours: opts.rule.throttleHours,
+    });
+    if (dup) {
+      attempts.push({ channelId: opts.channel.id, channelKind: opts.channel.kind, recipient, status: "suppressed" });
+      return attempts;
+    }
+    const r = await postTeamsConversation({
+      orgId: opts.orgId,
+      conversationId: cfg.conversationId,
+      input: { text: tmpl.text, card: tmpl.teamsCard },
+    });
+    attempts.push({ channelId: opts.channel.id, channelKind: opts.channel.kind, recipient: r.recipient, status: r.status, error: r.error });
     return attempts;
   }
 

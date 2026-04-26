@@ -12,6 +12,9 @@ const PUBLIC_PATHS = [
   "/login",
   "/api/auth",
   "/api/v1/directory",
+  // Microsoft Bot Framework posts here server-to-server; the route validates
+  // the inbound JWT itself.
+  "/api/v1/integrations/teams/messages",
 ];
 
 export default auth((req) => {

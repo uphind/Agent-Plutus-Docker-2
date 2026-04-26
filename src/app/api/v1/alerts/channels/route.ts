@@ -7,6 +7,8 @@ import {
   buildSlackBotConfig,
   buildSlackWebhookConfig,
   buildSmtpConfig,
+  buildTeamsBotConfig,
+  buildTeamsWebhookConfig,
   publicChannelConfig,
 } from "@/lib/alerts/channels/config";
 
@@ -42,7 +44,41 @@ const slackBotSchema = z.object({
   { message: "channelId is required when mode is 'channel'", path: ["channelId"] },
 );
 
-const createSchema = z.discriminatedUnion("kind", [smtpSchema, slackWebhookSchema, slackBotSchema]);
+const teamsWebhookSchema = z.object({
+  kind: z.literal("teams_webhook"),
+  name: z.string().min(1),
+  url: z.string().url().refine(
+    (u) =>
+      // Power Automate Workflow URLs end with `…/triggers/manual/run?api-version=…`
+      u.includes("logic.azure.com") ||
+      u.includes("flow.microsoft.com") ||
+      u.includes("powerautomate.com") ||
+      // Legacy Office 365 connector URLs (deprecated but still functional).
+      u.includes("outlook.office.com/webhook/") ||
+      u.includes("webhook.office.com/"),
+    {
+      message:
+        "URL must be a Microsoft Teams incoming webhook (Power Automate Workflow or legacy connector).",
+    },
+  ),
+  channelLabel: z.string().optional(),
+});
+
+const teamsBotSchema = z.object({
+  kind: z.literal("teams_bot"),
+  name: z.string().min(1),
+  conversationId: z.string().min(1),
+  conversationName: z.string().optional(),
+  conversationType: z.enum(["channel", "personal", "groupChat"]).optional(),
+});
+
+const createSchema = z.discriminatedUnion("kind", [
+  smtpSchema,
+  slackWebhookSchema,
+  slackBotSchema,
+  teamsWebhookSchema,
+  teamsBotSchema,
+]);
 
 export async function GET() {
   try {
@@ -114,12 +150,22 @@ export async function POST(request: NextRequest) {
   } else if (data.kind === "slack_webhook") {
     kind = AlertChannelKind.slack_webhook;
     config = buildSlackWebhookConfig(data.url, data.channelLabel);
-  } else {
+  } else if (data.kind === "slack_bot") {
     kind = AlertChannelKind.slack_bot;
     config = buildSlackBotConfig({
       mode: data.mode,
       channelId: data.channelId,
       channelName: data.channelName,
+    });
+  } else if (data.kind === "teams_webhook") {
+    kind = AlertChannelKind.teams_webhook;
+    config = buildTeamsWebhookConfig(data.url, data.channelLabel);
+  } else {
+    kind = AlertChannelKind.teams_bot;
+    config = buildTeamsBotConfig({
+      conversationId: data.conversationId,
+      conversationName: data.conversationName,
+      conversationType: data.conversationType,
     });
   }
 

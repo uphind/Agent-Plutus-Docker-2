@@ -477,9 +477,9 @@ API routes require the `X-API-Key` header with the organization's API key.
 - **POST** `/api/v1/notifications/:id/read` — Mark notification as read
 - **POST** `/api/v1/notifications/read-all` — Mark all as read
 
-### Alerts (Channels, Rules, Slack)
+### Alerts (Channels, Rules, Slack, Teams)
 
-- **GET / POST** `/api/v1/alerts/channels` — List / create email + Slack channels
+- **GET / POST** `/api/v1/alerts/channels` — List / create email, Slack, and Microsoft Teams channels
 - **PATCH / DELETE** `/api/v1/alerts/channels/:id` — Update / remove a channel
 - **POST** `/api/v1/alerts/channels/:id/test` — Send a synthetic alert through a channel (body: `{ "testRecipient": "you@example.com" }` for SMTP / Slack DM)
 - **GET / POST** `/api/v1/alerts/rules` — List / create rules
@@ -491,6 +491,11 @@ API routes require the `X-API-Key` header with the organization's API key.
 - **GET** `/api/v1/integrations/slack/oauth/callback` — Slack OAuth callback (do not call directly)
 - **POST** `/api/v1/integrations/slack/oauth/disconnect` — Remove the Slack installation
 - **GET** `/api/v1/integrations/slack/channels` — List channels visible to the bot (used by the channel-picker)
+- **GET** `/api/v1/integrations/teams` — Microsoft Teams bot status (configured + conversation count)
+- **PUT / DELETE** `/api/v1/integrations/teams/settings` — Save / clear Microsoft App ID + secret
+- **GET** `/api/v1/integrations/teams/conversations` — Channels, chats, and group chats the bot has been added to
+- **GET** `/api/v1/integrations/teams/manifest` — Download the Teams app sideload package (.zip)
+- **POST** `/api/v1/integrations/teams/messages` — Bot Framework webhook (Microsoft only — JWT-validated)
 
 ---
 
@@ -529,6 +534,34 @@ To get the Slack App credentials, create an app from `docs/slack-app-manifest.ya
 Client ID and Client Secret from **Basic Information → App Credentials**. The
 Redirect URI defaults to `<your-domain>/api/v1/integrations/slack/oauth/callback`
 and must match the URL listed under **OAuth & Permissions → Redirect URLs**.
+
+### Microsoft Teams
+
+Click **Setup Teams** on the Alerts tab. Two modes are supported and can be
+combined:
+
+1. **Workflow webhook** — open any Teams channel, click ⋯ → **Workflows** →
+   "Post to a channel when a webhook request is received", copy the URL Teams
+   gives you, paste it into the modal. Channels only, no Azure setup needed.
+2. **Bot (Bot Framework)** — supports channels, 1:1 chats, and group chats. A
+   guided three-step flow inside the modal:
+   1. Paste your Microsoft App ID + client secret (one-time Azure App
+      Registration). The credentials are stored encrypted in the
+      `teams_bot_settings` table and used both to sign outbound proactive
+      messages and to validate the JWTs Microsoft signs on inbound activities.
+   2. Click **Download Teams app (.zip)** and upload the manifest to
+      **Teams Admin Center → Manage apps → Upload new app** (or sideload it
+      for a single team via **Apps → Manage your apps**). Add the bot to any
+      Teams channel, chat, or group chat where you want alerts.
+   3. Pick a destination from the drop-down (auto-populated as the bot is
+      added to conversations) and save.
+
+The bot's messaging endpoint is `<your-domain>/api/v1/integrations/teams/messages`.
+Microsoft posts activities here whenever the bot is added to or removed from a
+conversation; we capture the conversation reference so we can later send
+proactive notifications. The endpoint is in `PUBLIC_PATHS` (it can't go through
+SSO — Microsoft is server-to-server) but every request is authenticated via
+JWT signature against the Bot Framework JWKS.
 
 The legacy env vars `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`,
 `SLACK_REDIRECT_URI`, `APP_BASE_URL` still work as a fallback when the database
