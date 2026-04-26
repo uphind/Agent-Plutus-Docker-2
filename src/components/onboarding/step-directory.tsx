@@ -33,6 +33,8 @@ export interface DirectoryStepResult {
   availableFields: string[];
   /** A sample user object — used to show example values during mapping. */
   sampleUser: Record<string, unknown> | null;
+  /** How many users were sampled to build the field list (so we can say "from 25 users" not "from a sample user"). */
+  sampledCount?: number;
 }
 
 export function StepDirectory({
@@ -93,6 +95,7 @@ export function StepDirectory({
         graphConnected: true,
         availableFields: data.availableFields ?? [],
         sampleUser: data.sampleUser ?? null,
+        sampledCount: data.sampledCount,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Connection failed");
@@ -198,8 +201,11 @@ export function StepDirectory({
           <div className="rounded-md border border-emerald-200 bg-emerald-50/50 p-3 flex items-start gap-2">
             <Check className="h-4 w-4 text-emerald-700 shrink-0 mt-0.5" />
             <p className="text-sm text-emerald-800">
-              Connected to Microsoft Graph. {connected.availableFields.length} fields detected
-              from a sample user.
+              Connected to Microsoft Graph. {connected.availableFields.length} fields available
+              {connected.sampledCount
+                ? ` (sampled across ${connected.sampledCount} ${connected.sampledCount === 1 ? "user" : "users"} + standard schema)`
+                : ""}
+              .
             </p>
           </div>
         )}

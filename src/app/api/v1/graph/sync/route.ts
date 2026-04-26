@@ -1,8 +1,25 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getOrgId } from "@/lib/org";
-import { getAccessToken, fetchGraphUsers } from "@/lib/graph/client";
-import { mapGraphUsers } from "@/lib/graph/mapper";
+import { getAccessToken, fetchGraphUsers, type GraphUser } from "@/lib/graph/client";
+import { mapGraphUser } from "@/lib/graph/mapper";
+import { Prisma } from "@/generated/prisma/client";
+
+/**
+ * Strip Graph's `@odata.*` keys from the user object and cast to Prisma's
+ * `InputJsonValue` shape so the JSONB column accepts it. The JSON.stringify
+ * round-trip is the same pattern the sync-engine uses for `UsageRecord.metadata`
+ * — Prisma's input type is stricter than `Record<string, unknown>` and
+ * requires a structural narrowing.
+ */
+function sanitizeRawAttributes(user: GraphUser): Prisma.InputJsonValue {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(user)) {
+    if (key.startsWith("@odata")) continue;
+    out[key] = value;
+  }
+  return JSON.parse(JSON.stringify(out)) as Prisma.InputJsonValue;
+}
 
 export async function POST() {
   try {
@@ -23,7 +40,6 @@ export async function POST() {
 
     const token = await getAccessToken(config.tenantId, config.clientId, config.encryptedSecret);
     const graphUsers = await fetchGraphUsers(token, config.graphEndpoint);
-    const directoryUsers = mapGraphUsers(graphUsers, mappings);
 
     const existingEmails = new Set(
       (await prisma.orgUser.findMany({ where: { orgId }, select: { email: true } }))
@@ -33,7 +49,14 @@ export async function POST() {
     let created = 0;
     let updated = 0;
 
-    for (const user of directoryUsers) {
+    // We iterate the original Graph users (not just the post-mapping shape)
+    // so we can persist the raw object alongside the mapped relational
+    // columns — admins need to see every attribute on the Directory tab
+    // even when it doesn't correspond to a mapped target field.
+    for (const graphUser of graphUsers) {
+      const user = mapGraphUser(graphUser, mappings);
+      if (!user.email) continue;
+
       const deptRecord = user.department
         ? await prisma.department.upsert({
             where: { orgId_name: { orgId, name: user.department } },
@@ -51,6 +74,8 @@ export async function POST() {
             })
           : null;
 
+      const rawAttributes = sanitizeRawAttributes(graphUser);
+
       if (existingEmails.has(user.email.toLowerCase())) {
         await prisma.orgUser.update({
           where: { orgId_email: { orgId, email: user.email } },
@@ -63,6 +88,7 @@ export async function POST() {
             jobTitle: user.job_title,
             employeeId: user.employee_id,
             status: user.status || "active",
+            rawAttributes,
           },
         });
         updated++;
@@ -79,6 +105,7 @@ export async function POST() {
             jobTitle: user.job_title,
             employeeId: user.employee_id,
             status: user.status || "active",
+            rawAttributes,
           },
         });
         created++;
@@ -92,7 +119,7 @@ export async function POST() {
 
     return NextResponse.json({
       success: true,
-      total: directoryUsers.length,
+      total: graphUsers.length,
       created,
       updated,
     });

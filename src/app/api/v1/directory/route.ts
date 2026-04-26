@@ -2,16 +2,34 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getOrgId } from "@/lib/org";
+import { Prisma } from "@/generated/prisma/client";
 
-const userSchema = z.object({
-  email: z.string().email(),
-  name: z.string().min(1),
-  department: z.string().optional(),
-  team: z.string().optional(),
-  job_title: z.string().optional(),
-  employee_id: z.string().optional(),
-  status: z.string().optional().default("active"),
-});
+// `.passthrough()` keeps every additional key the caller sent (e.g.
+// extensionAttribute7, costCenter, manager_email, location.country) so
+// downstream we can persist them on `OrgUser.rawAttributes` and surface
+// them on the Directory tab without HR systems having to fit into our
+// 7 hardcoded columns.
+const userSchema = z
+  .object({
+    email: z.string().email(),
+    name: z.string().min(1),
+    department: z.string().optional(),
+    team: z.string().optional(),
+    job_title: z.string().optional(),
+    employee_id: z.string().optional(),
+    status: z.string().optional().default("active"),
+  })
+  .passthrough();
+
+const KNOWN_USER_KEYS = new Set([
+  "email",
+  "name",
+  "department",
+  "team",
+  "job_title",
+  "employee_id",
+  "status",
+]);
 
 const directorySchema = z.object({
   users: z.array(userSchema).min(1),
@@ -77,6 +95,22 @@ export async function POST(request: NextRequest) {
     const teamKey = user.department && user.team ? `${user.department}|${user.team}` : null;
     const teamId = teamKey ? teamMap.get(teamKey) ?? null : null;
 
+    // Capture every extra field the caller sent (e.g. costCenter, location,
+    // extensionAttribute*) so the Directory tab can render them. We tag the
+    // payload with `_source` so admins can tell pushed-via-API entries apart
+    // from Graph-synced ones. Cast through JSON to satisfy Prisma's strict
+    // InputJsonValue shape — same pattern used by the sync-engine for
+    // UsageRecord.metadata.
+    const extras: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(user)) {
+      if (KNOWN_USER_KEYS.has(key)) continue;
+      extras[key] = value;
+    }
+    const rawAttributes: Prisma.InputJsonValue | undefined =
+      Object.keys(extras).length > 0
+        ? (JSON.parse(JSON.stringify({ ...extras, _source: "directory_api" })) as Prisma.InputJsonValue)
+        : undefined;
+
     await prisma.orgUser.upsert({
       where: { orgId_email: { orgId: orgId, email: user.email.toLowerCase() } },
       create: {
@@ -90,6 +124,7 @@ export async function POST(request: NextRequest) {
         jobTitle: user.job_title ?? null,
         employeeId: user.employee_id ?? null,
         status: user.status ?? "active",
+        rawAttributes,
       },
       update: {
         name: user.name,
@@ -100,6 +135,7 @@ export async function POST(request: NextRequest) {
         jobTitle: user.job_title ?? null,
         employeeId: user.employee_id ?? null,
         status: user.status ?? "active",
+        ...(rawAttributes ? { rawAttributes } : {}),
       },
     });
     results.upserted++;

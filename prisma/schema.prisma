@@ -126,6 +126,11 @@ model OrgUser {
   status         String   @default("active")
   monthlyBudget  Decimal? @map("monthly_budget") @db.Decimal(12, 2)
   alertThreshold Int      @default(80) @map("alert_threshold")
+  // Full Graph user object captured at sync time (manager, all
+  // onPremisesExtensionAttribute*, address fields, etc.). Powers the
+  // "Directory" tab on the user-detail page so admins can see every
+  // attribute without us hardcoding columns for each.
+  rawAttributes  Json?    @map("raw_attributes")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 

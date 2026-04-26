@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use, useCallback } from "react";
+import { useEffect, useState, use, useCallback, useMemo } from "react";
 import { Header } from "@/components/layout/header";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { StatCard } from "@/components/ui/stat-card";
@@ -15,7 +15,7 @@ import { SkeletonCard } from "@/components/ui/skeleton";
 import { Modal } from "@/components/ui/modal";
 import { api } from "@/lib/dashboard-api";
 import { formatCurrency, formatTokens, PROVIDER_LABELS, PROVIDER_COLORS } from "@/lib/utils";
-import { DollarSign, Zap, Hash, Settings2, Sparkles, ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
+import { DollarSign, Zap, Hash, Settings2, Sparkles, ArrowRight, ChevronDown, ChevronRight, FolderTree, Search } from "lucide-react";
 
 interface UserDetail {
   user: {
@@ -24,6 +24,13 @@ interface UserDetail {
     jobTitle: string | null; employeeId: string | null; status: string;
     monthlyBudget?: number | null;
     alertThreshold?: number;
+    /**
+     * Full Graph user object (or HR-system payload) captured at sync time.
+     * Powers the "Directory" tab so admins can see every attribute without
+     * us hardcoding columns. Null when the user was created before the
+     * raw_attributes column existed and hasn't re-synced since.
+     */
+    rawAttributes?: Record<string, unknown> | null;
   };
   usage: Array<{
     provider: string; model: string | null;
@@ -237,6 +244,11 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
           { id: "overview", label: "Overview" },
           { id: "providers", label: "By Provider", count: byProvider.size },
           { id: "models", label: "By Model", count: usage.length },
+          {
+            id: "directory",
+            label: "Directory",
+            count: countDirectoryFields(user.rawAttributes),
+          },
         ]}
         active={tab}
         onChange={setTab}
@@ -295,6 +307,10 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {tab === "directory" && (
+        <DirectoryTab rawAttributes={user.rawAttributes ?? null} user={user} />
       )}
 
       {tab === "models" && (
@@ -380,6 +396,228 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
           </div>
         </Modal>
     </div>
+  );
+}
+
+/**
+ * Walks the raw attributes object and counts every leaf field path so the
+ * "Directory" tab can show a count badge in the tab strip — e.g.
+ * "Directory (47)". We count leaves rather than top-level keys so users
+ * see the full attribute density (manager.displayName, extensionAttribute7,
+ * etc.) instead of just "5 top-level objects".
+ */
+function countDirectoryFields(raw: Record<string, unknown> | null | undefined): number {
+  if (!raw) return 0;
+  let count = 0;
+  const walk = (value: unknown, depth: number) => {
+    if (depth > 4) {
+      count++;
+      return;
+    }
+    if (value === null || value === undefined) {
+      count++;
+      return;
+    }
+    if (Array.isArray(value)) {
+      count++;
+      return;
+    }
+    if (typeof value === "object") {
+      const keys = Object.keys(value as Record<string, unknown>).filter((k) => !k.startsWith("@odata"));
+      if (keys.length === 0) {
+        count++;
+        return;
+      }
+      for (const k of keys) walk((value as Record<string, unknown>)[k], depth + 1);
+      return;
+    }
+    count++;
+  };
+  walk(raw, 0);
+  return count;
+}
+
+/**
+ * Flattens the raw attributes object into a sorted list of dot-path entries
+ * so the table can render every leaf — including null/empty ones — for the
+ * admin to see. Empty strings, `null`, and `undefined` are surfaced as
+ * "(empty)" so the user can verify a field exists in the directory but
+ * happens to be blank for this person (and isn't just dropped silently
+ * the way the old code did).
+ */
+function flattenAttributes(raw: Record<string, unknown>): Array<{ path: string; value: unknown }> {
+  const out: Array<{ path: string; value: unknown }> = [];
+  const walk = (value: unknown, prefix: string, depth: number) => {
+    if (depth > 4) {
+      out.push({ path: prefix, value });
+      return;
+    }
+    if (value === null || value === undefined) {
+      out.push({ path: prefix, value });
+      return;
+    }
+    if (Array.isArray(value)) {
+      out.push({ path: prefix, value });
+      return;
+    }
+    if (typeof value === "object") {
+      const keys = Object.keys(value as Record<string, unknown>).filter((k) => !k.startsWith("@odata"));
+      if (keys.length === 0) {
+        out.push({ path: prefix, value: {} });
+        return;
+      }
+      for (const k of keys) {
+        const child = (value as Record<string, unknown>)[k];
+        const path = prefix ? `${prefix}.${k}` : k;
+        walk(child, path, depth + 1);
+      }
+      return;
+    }
+    out.push({ path: prefix, value });
+  };
+  walk(raw, "", 0);
+  return out.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function formatAttributeValue(value: unknown): { display: string; isEmpty: boolean } {
+  if (value === null || value === undefined) return { display: "(empty)", isEmpty: true };
+  if (value === "") return { display: "(empty string)", isEmpty: true };
+  if (Array.isArray(value)) {
+    if (value.length === 0) return { display: "(empty array)", isEmpty: true };
+    return { display: value.map((v) => (typeof v === "object" ? JSON.stringify(v) : String(v))).join(", "), isEmpty: false };
+  }
+  if (typeof value === "boolean") return { display: value ? "true" : "false", isEmpty: false };
+  if (typeof value === "object") return { display: JSON.stringify(value), isEmpty: false };
+  return { display: String(value), isEmpty: false };
+}
+
+function DirectoryTab({
+  rawAttributes,
+  user,
+}: {
+  rawAttributes: Record<string, unknown> | null;
+  user: UserDetail["user"];
+}) {
+  const [search, setSearch] = useState("");
+  const [showEmpty, setShowEmpty] = useState(true);
+
+  // Always merge in the relational columns so the tab is useful even when
+  // the user was synced before raw_attributes existed (no Graph re-sync
+  // yet → rawAttributes is null, but we can still show the basics).
+  const merged = useMemo<Record<string, unknown>>(() => {
+    const base: Record<string, unknown> = {
+      id: user.id,
+      email: user.email,
+      displayName: user.name,
+      jobTitle: user.jobTitle,
+      department: user.department,
+      team: user.team,
+      employeeId: user.employeeId,
+      status: user.status,
+    };
+    if (rawAttributes && typeof rawAttributes === "object") {
+      // rawAttributes wins where both exist — Graph is the source of truth.
+      return { ...base, ...rawAttributes };
+    }
+    return base;
+  }, [rawAttributes, user]);
+
+  const flat = useMemo(() => flattenAttributes(merged), [merged]);
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return flat.filter((entry) => {
+      const formatted = formatAttributeValue(entry.value);
+      if (!showEmpty && formatted.isEmpty) return false;
+      if (!q) return true;
+      return (
+        entry.path.toLowerCase().includes(q) ||
+        formatted.display.toLowerCase().includes(q)
+      );
+    });
+  }, [flat, search, showEmpty]);
+
+  const hasGraphData = !!rawAttributes;
+  const populatedCount = flat.filter((e) => !formatAttributeValue(e.value).isEmpty).length;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <FolderTree className="h-4 w-4 text-muted-foreground" />
+              Directory attributes
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              Every field captured for this user from the directory source.{" "}
+              <span className="font-medium">{populatedCount}</span> populated of{" "}
+              <span className="font-medium">{flat.length}</span> total.
+              {!hasGraphData && (
+                <span className="ml-1 text-amber-600">
+                  Run a directory sync to populate Graph fields like manager and extension attributes.
+                </span>
+              )}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showEmpty}
+                onChange={(e) => setShowEmpty(e.target.checked)}
+                className="rounded border-border"
+              />
+              Show empty fields
+            </label>
+            <div className="relative">
+              <Search className="h-3.5 w-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Filter fields..."
+                className="pl-8 pr-3 py-1.5 text-xs rounded-lg border border-border bg-background w-48"
+              />
+            </div>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="p-0">
+        {filtered.length === 0 ? (
+          <p className="px-6 py-8 text-center text-sm text-muted-foreground">
+            {search ? "No fields match your filter." : "No directory data available."}
+          </p>
+        ) : (
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className="px-6 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground w-[40%]">
+                  Field
+                </th>
+                <th className="px-6 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Value
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((entry) => {
+                const formatted = formatAttributeValue(entry.value);
+                return (
+                  <tr key={entry.path} className="border-b border-border last:border-0 hover:bg-muted/40">
+                    <td className="px-6 py-2 text-xs font-mono text-foreground align-top">
+                      {entry.path}
+                    </td>
+                    <td className={`px-6 py-2 text-xs align-top break-all ${formatted.isEmpty ? "text-muted-foreground italic" : "text-foreground"}`}>
+                      {formatted.display}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

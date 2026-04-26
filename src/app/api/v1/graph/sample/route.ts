@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getOrgId } from "@/lib/org";
-import { getAccessToken, fetchSampleUser } from "@/lib/graph/client";
-import { extractFieldNames } from "@/lib/graph/mapper";
+import { getAccessToken, fetchFieldDiscovery } from "@/lib/graph/client";
+import { buildAvailableFields } from "@/lib/graph/mapper";
 
 export async function GET() {
   const orgId = await getOrgId();
@@ -17,10 +17,14 @@ export async function GET() {
 
   try {
     const token = await getAccessToken(config.tenantId, config.clientId, config.encryptedSecret);
-    const sampleUser = await fetchSampleUser(token, config.graphEndpoint);
-    const availableFields = sampleUser ? extractFieldNames(sampleUser) : [];
+    const discovery = await fetchFieldDiscovery(token, config.graphEndpoint);
+    const availableFields = buildAvailableFields(discovery.bestSample, discovery.unionKeys);
 
-    return NextResponse.json({ sampleUser, availableFields });
+    return NextResponse.json({
+      sampleUser: discovery.bestSample,
+      availableFields,
+      sampledCount: discovery.sampledCount,
+    });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to fetch sample" },

@@ -3,8 +3,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getOrgId } from "@/lib/org";
 import { encrypt } from "@/lib/encryption";
-import { getAccessToken, fetchSampleUser } from "@/lib/graph/client";
-import { extractFieldNames } from "@/lib/graph/mapper";
+import { getAccessToken, fetchFieldDiscovery } from "@/lib/graph/client";
+import { buildAvailableFields } from "@/lib/graph/mapper";
 
 const connectSchema = z.object({
   tenantId: z.string().min(1),
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const token = await getAccessToken(tenantId, clientId, encryptedSecret);
-    const sampleUser = await fetchSampleUser(token, endpoint);
+    const discovery = await fetchFieldDiscovery(token, endpoint);
 
     await prisma.graphConfig.upsert({
       where: { orgId },
@@ -45,12 +45,13 @@ export async function POST(request: NextRequest) {
       create: { orgId, tenantId, clientId, encryptedSecret, graphEndpoint: endpoint },
     });
 
-    const availableFields = sampleUser ? extractFieldNames(sampleUser) : [];
+    const availableFields = buildAvailableFields(discovery.bestSample, discovery.unionKeys);
 
     return NextResponse.json({
       success: true,
-      sampleUser,
+      sampleUser: discovery.bestSample,
       availableFields,
+      sampledCount: discovery.sampledCount,
     });
   } catch (err) {
     return NextResponse.json(
