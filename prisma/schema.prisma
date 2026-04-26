@@ -41,6 +41,7 @@ model Organization {
   slackOAuthSettings  SlackOAuthSettings?
   teamsBotSettings    TeamsBotSettings?
   teamsConversations  TeamsConversation[]
+  syncJobs            SyncJob[]
 
   @@map("organizations")
 }
@@ -234,6 +235,33 @@ model SyncLog {
 
   @@index([orgId, provider])
   @@map("sync_logs")
+}
+
+/// Live progress tracker for long-running syncs (directory pull, provider
+/// usage backfill, etc.). Powers the "syncing… 47%" row in the bell so
+/// admins can see something is happening without staring at logs.
+///
+/// `kind` is a free-form string instead of an enum so we can add new sync
+/// types (e.g. provider:openai, provider:cursor, provider:anthropic) without
+/// a migration each time.
+model SyncJob {
+  id         String    @id @default(uuid())
+  orgId      String    @map("org_id")
+  kind       String
+  status     String    @default("running")
+  progress   Int       @default(0)
+  processed  Int       @default(0)
+  total      Int       @default(0)
+  message    String?
+  error      String?
+  startedAt  DateTime  @default(now()) @map("started_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  finishedAt DateTime? @map("finished_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, status, startedAt])
+  @@map("sync_jobs")
 }
 
 enum NotificationType {

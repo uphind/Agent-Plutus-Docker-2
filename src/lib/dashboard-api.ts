@@ -257,6 +257,9 @@ export const api = {
   // Directory sync
   triggerDirectorySync: () => apiFetch("/graph/sync", { method: "POST" }),
 
+  // Live sync-job progress (powers the "syncing… 47%" row in the bell)
+  getActiveSyncJobs: () => apiFetch("/sync-jobs/active"),
+
   // Provider field mapping
   getProviderFieldMapping: (provider: string) =>
     apiFetch(`/providers/field-mapping?provider=${provider}`),

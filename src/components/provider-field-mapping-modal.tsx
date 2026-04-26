@@ -488,6 +488,35 @@ export function ProviderFieldMappingModal({ open, onClose, provider, discoveredE
                 )}
               </div>
 
+              {/* Provider-specific hint about how the date/time field works.
+                  OpenAI in particular confuses people because the Usage Admin
+                  API returns time *buckets* — there's no per-event timestamp,
+                  the bucket boundary is the date. */}
+              {provider === "openai" && (
+                <div className="mb-3 rounded-md border border-blue-200 bg-blue-50/50 p-2.5 text-[11px] text-blue-900 dark:bg-blue-500/[0.08] dark:border-blue-500/20 dark:text-blue-200">
+                  <p className="font-medium mb-0.5">How the date works on OpenAI</p>
+                  <p className="text-[10px] leading-snug opacity-90">
+                    OpenAI&apos;s Usage Admin API doesn&apos;t emit per-event timestamps —
+                    it groups calls into <strong>hourly buckets</strong>, each with a{" "}
+                    <span className="font-mono">start_time</span> /{" "}
+                    <span className="font-mono">end_time</span>. The metric rows here
+                    ({" "}<span className="font-mono">model</span>,{" "}
+                    <span className="font-mono">user_id</span>,{" "}
+                    <span className="font-mono">input_tokens</span>, …) carry no time
+                    of their own. Map <span className="font-mono">start_time</span> →{" "}
+                    <span className="font-mono">date</span> and every record gets
+                    stamped to the start of its hour.
+                  </p>
+                  <p className="text-[10px] leading-snug opacity-90 mt-1.5">
+                    <strong>Sync interval ≠ record date.</strong> The interval you
+                    pick (every 6h, 12h, 24h…) only controls how often we re-fetch.
+                    Each fetch pulls every hourly bucket in the requested window, so
+                    you always end up with hour-precise dates regardless of how
+                    often you sync.
+                  </p>
+                </div>
+              )}
+
               {/* Endpoint pill bar — only shown when discoveredEndpoints were
                   passed in (i.e. the modal was opened from Discovery). Lets
                   the user switch between the response shape of each endpoint

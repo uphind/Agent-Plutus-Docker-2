@@ -4,6 +4,12 @@ import { getOrgId } from "@/lib/org";
 import { getAccessToken, fetchGraphUsers, type GraphUser } from "@/lib/graph/client";
 import { mapGraphUser } from "@/lib/graph/mapper";
 import { Prisma } from "@/generated/prisma/client";
+import {
+  createSyncJob,
+  updateSyncProgress,
+  completeSyncJob,
+  failSyncJob,
+} from "@/lib/sync-job";
 
 /**
  * Strip Graph's `@odata.*` keys from the user object and cast to Prisma's
@@ -21,17 +27,29 @@ function sanitizeRawAttributes(user: GraphUser): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(out)) as Prisma.InputJsonValue;
 }
 
-export async function POST() {
+/**
+ * Run the actual Graph sync, writing progress to the SyncJob row on every
+ * meaningful percentage step. This runs *after* the HTTP response goes out
+ * — the request handler returns `{ jobId }` immediately so the UI can start
+ * polling for live progress.
+ *
+ * IMPORTANT: this function intentionally swallows its errors and routes them
+ * through `failSyncJob` so the caller (a fire-and-forget promise) doesn't
+ * crash the Node process with an unhandled rejection.
+ */
+async function runDirectorySync(jobId: string, orgId: string) {
   try {
-    const orgId = await getOrgId();
-
     const config = await prisma.graphConfig.findUnique({ where: { orgId } });
     if (!config) {
-      return NextResponse.json(
-        { error: "Graph API not configured" },
-        { status: 404 }
-      );
+      await failSyncJob(jobId, {
+        orgId,
+        kind: "directory",
+        error: "Graph API not configured",
+      });
+      return;
     }
+
+    await updateSyncProgress(jobId, 0, 0, "Authenticating with Microsoft Graph…");
 
     const mappings = await prisma.fieldMapping.findMany({
       where: { orgId, entityType: "user" },
@@ -39,7 +57,17 @@ export async function POST() {
     });
 
     const token = await getAccessToken(config.tenantId, config.clientId, config.encryptedSecret);
+
+    await updateSyncProgress(jobId, 0, 0, "Pulling users from Microsoft Graph…");
     const graphUsers = await fetchGraphUsers(token, config.graphEndpoint);
+
+    const total = graphUsers.length;
+    await updateSyncProgress(
+      jobId,
+      0,
+      total,
+      total === 0 ? "Graph returned 0 users" : `Writing ${total} users to the database…`
+    );
 
     const existingEmails = new Set(
       (await prisma.orgUser.findMany({ where: { orgId }, select: { email: true } }))
@@ -48,14 +76,18 @@ export async function POST() {
 
     let created = 0;
     let updated = 0;
+    let skipped = 0;
+    let processed = 0;
 
-    // We iterate the original Graph users (not just the post-mapping shape)
-    // so we can persist the raw object alongside the mapped relational
-    // columns — admins need to see every attribute on the Directory tab
-    // even when it doesn't correspond to a mapped target field.
     for (const graphUser of graphUsers) {
       const user = mapGraphUser(graphUser, mappings);
-      if (!user.email) continue;
+      processed++;
+
+      if (!user.email) {
+        skipped++;
+        await updateSyncProgress(jobId, processed, total);
+        continue;
+      }
 
       const deptRecord = user.department
         ? await prisma.department.upsert({
@@ -110,6 +142,8 @@ export async function POST() {
         });
         created++;
       }
+
+      await updateSyncProgress(jobId, processed, total);
     }
 
     await prisma.graphConfig.update({
@@ -117,16 +151,19 @@ export async function POST() {
       data: { lastSyncAt: new Date() },
     });
 
-    return NextResponse.json({
-      success: true,
-      total: graphUsers.length,
-      created,
-      updated,
+    const summaryParts = [`${total} user${total === 1 ? "" : "s"} pulled`];
+    if (created) summaryParts.push(`${created} created`);
+    if (updated) summaryParts.push(`${updated} updated`);
+    if (skipped) summaryParts.push(`${skipped} skipped`);
+    await completeSyncJob(jobId, {
+      orgId,
+      kind: "directory",
+      summary: summaryParts.join(" · "),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Sync failed";
     const m = message.toLowerCase();
-    let hint: string | undefined;
+    let hint = message;
     if (m.includes("password authentication") || m.includes("p1010") || m.includes("p1001")) {
       hint = "Database connection failed. Check that POSTGRES_PASSWORD in .env matches the running database.";
     } else if (m.includes("401") || m.includes("invalid_client")) {
@@ -134,6 +171,50 @@ export async function POST() {
     } else if (m.includes("403")) {
       hint = "Microsoft Graph access denied. The app registration likely needs User.Read.All Application permission with admin consent.";
     }
-    return NextResponse.json({ error: message, hint }, { status: 500 });
+    await failSyncJob(jobId, { orgId, kind: "directory", error: hint });
+  }
+}
+
+export async function POST() {
+  try {
+    const orgId = await getOrgId();
+
+    const config = await prisma.graphConfig.findUnique({ where: { orgId } });
+    if (!config) {
+      return NextResponse.json(
+        { error: "Graph API not configured" },
+        { status: 404 }
+      );
+    }
+
+    // Refuse to start a second concurrent directory sync — the worker is
+    // idempotent (upserts), but two concurrent runs would just double the
+    // database load and fight over the same row updates.
+    const inflight = await prisma.syncJob.findFirst({
+      where: { orgId, kind: "directory", status: "running" },
+      orderBy: { startedAt: "desc" },
+    });
+    if (inflight) {
+      return NextResponse.json(
+        { jobId: inflight.id, async: true, alreadyRunning: true },
+        { status: 202 }
+      );
+    }
+
+    const job = await createSyncJob(orgId, "directory", "Starting directory sync…");
+
+    // Kick off the work in the background. We deliberately do NOT await this
+    // — the standalone Next.js server (Docker) keeps the event loop alive
+    // long enough for the promise to settle, and the UI polls SyncJob for
+    // progress instead of waiting on the HTTP response.
+    void runDirectorySync(job.id, orgId);
+
+    return NextResponse.json(
+      { jobId: job.id, async: true },
+      { status: 202 }
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to start sync";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

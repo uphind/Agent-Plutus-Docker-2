@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, AlertTriangle, Check, CheckCheck, ChevronRight, Settings2 } from "lucide-react";
+import { Bell, AlertTriangle, Check, CheckCheck, ChevronRight, Settings2, RefreshCw, XCircle } from "lucide-react";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { api } from "@/lib/dashboard-api";
 import Link from "next/link";
@@ -22,6 +22,20 @@ interface NotificationItem {
   entityId: string | null;
   isRead: boolean;
   createdAt: string;
+}
+
+interface SyncJobItem {
+  id: string;
+  kind: string;
+  label: string;
+  status: "running" | "completed" | "failed" | string;
+  progress: number;
+  processed: number;
+  total: number;
+  message: string | null;
+  error: string | null;
+  startedAt: string;
+  finishedAt: string | null;
 }
 
 function UserAvatar({ name }: { name: string }) {
@@ -80,11 +94,16 @@ export function TopBar({ user }: TopBarProps) {
   const [alerts, setAlerts] = useState<AlertSummary | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [syncJobs, setSyncJobs] = useState<SyncJobItem[]>([]);
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [setupIncomplete, setSetupIncomplete] = useState(false);
   const [incompleteSteps, setIncompleteSteps] = useState<SetupStep[]>([]);
   const [showSetupPanel, setShowSetupPanel] = useState(false);
+
+  const runningJobs = syncJobs.filter((j) => j.status === "running");
+  const recentlyFinishedJobs = syncJobs.filter((j) => j.status !== "running");
+  const hasRunningJob = runningJobs.length > 0;
 
   const checkSetupStatus = useCallback(async () => {
     const skipped = localStorage.getItem(SETUP_SKIPPED_KEY) === "true";
@@ -130,23 +149,57 @@ export function TopBar({ user }: TopBarProps) {
     }
   }, []);
 
+  const fetchSyncJobs = useCallback(async () => {
+    try {
+      const data = await api.getActiveSyncJobs();
+      setSyncJobs((data.jobs ?? []) as SyncJobItem[]);
+    } catch {
+      // ignore — non-fatal, UI just won't show progress
+    }
+  }, []);
+
   useEffect(() => {
     api.getAlerts()
       .then((d) => setAlerts(d.summary))
       .catch(() => {});
-    fetchNotifications();
-    checkSetupStatus();
+    // Defer to a microtask so the rule against synchronous setState during
+    // an effect body is satisfied — these helpers each call setState after
+    // their `await`, but the linter can't see past the async boundary.
+    void Promise.resolve().then(() => {
+      fetchNotifications();
+      fetchSyncJobs();
+      checkSetupStatus();
+    });
 
-    const interval = setInterval(fetchNotifications, 60000);
+    const notificationInterval = setInterval(fetchNotifications, 60000);
 
     const handleSetupSkipped = () => checkSetupStatus();
     window.addEventListener(SETUP_SKIPPED_EVENT, handleSetupSkipped);
 
     return () => {
-      clearInterval(interval);
+      clearInterval(notificationInterval);
       window.removeEventListener(SETUP_SKIPPED_EVENT, handleSetupSkipped);
     };
-  }, [fetchNotifications, checkSetupStatus]);
+  }, [fetchNotifications, fetchSyncJobs, checkSetupStatus]);
+
+  // Poll sync-job state more aggressively while a sync is running so the
+  // percentage bar updates ~live; back off to 15s otherwise. We don't poll
+  // every second to keep DB load bounded if many tabs are open.
+  useEffect(() => {
+    const intervalMs = hasRunningJob ? 2500 : 15000;
+    const id = setInterval(fetchSyncJobs, intervalMs);
+    return () => clearInterval(id);
+  }, [hasRunningJob, fetchSyncJobs]);
+
+  // When the user opens the dropdown, refresh immediately so the first
+  // glance shows the freshest progress.
+  useEffect(() => {
+    if (!open) return;
+    void Promise.resolve().then(() => {
+      fetchSyncJobs();
+      fetchNotifications();
+    });
+  }, [open, fetchSyncJobs, fetchNotifications]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -179,7 +232,8 @@ export function TopBar({ user }: TopBarProps) {
   };
 
   const totalAlerts = alerts ? alerts.critical + alerts.warning : 0;
-  const badgeCount = unreadCount + totalAlerts + (setupIncomplete ? 1 : 0);
+  const badgeCount =
+    unreadCount + totalAlerts + (setupIncomplete ? 1 : 0) + runningJobs.length;
 
   return (
     <header className="h-14 bg-sidebar flex items-center justify-between px-6 sticky top-0 z-40">
@@ -190,9 +244,15 @@ export function TopBar({ user }: TopBarProps) {
           <button
             className="relative p-2 rounded-lg hover:bg-white/10 transition-colors text-gray-400 hover:text-gray-200"
             onClick={() => setOpen(!open)}
+            aria-label={hasRunningJob ? "Notifications — sync in progress" : "Notifications"}
           >
-            <Bell className="h-4.5 w-4.5" />
-            {badgeCount > 0 && (
+            <Bell className={`h-4.5 w-4.5 ${hasRunningJob ? "text-brand" : ""}`} />
+            {hasRunningJob && (
+              <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-sidebar flex items-center justify-center">
+                <RefreshCw className="h-2.5 w-2.5 text-brand animate-spin" />
+              </span>
+            )}
+            {!hasRunningJob && badgeCount > 0 && (
               <span className={`absolute -top-0.5 -right-0.5 h-4 min-w-4 px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center ${
                 (alerts?.critical ?? 0) > 0 ? "bg-orange-500" : totalAlerts > 0 ? "bg-amber-500" : "bg-brand"
               }`}>
@@ -258,6 +318,77 @@ export function TopBar({ user }: TopBarProps) {
                 </div>
               )}
 
+              {/* In-progress syncs — live percentage bar so admins can see
+                  the directory or provider sync is actually moving instead
+                  of staring at the spinning button on the Settings page. */}
+              {runningJobs.map((job) => (
+                <div
+                  key={job.id}
+                  className="flex items-start gap-2.5 px-4 py-3 bg-brand/[0.06] border-b border-brand/15"
+                >
+                  <div className="h-7 w-7 rounded-lg bg-brand/15 flex items-center justify-center shrink-0">
+                    <RefreshCw className="h-3.5 w-3.5 text-brand animate-spin" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-brand truncate">
+                        {job.label} in progress
+                      </p>
+                      <span className="text-[10px] font-semibold text-brand tabular-nums shrink-0">
+                        {job.progress}%
+                      </span>
+                    </div>
+                    <div className="mt-1.5 h-1 w-full rounded-full bg-brand/15 overflow-hidden">
+                      <div
+                        className="h-full bg-brand transition-all duration-500"
+                        style={{ width: `${Math.max(2, job.progress)}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-1 truncate">
+                      {job.total > 0
+                        ? `${job.processed.toLocaleString()} / ${job.total.toLocaleString()} · ${job.message ?? "Working…"}`
+                        : (job.message ?? "Working…")}
+                    </p>
+                  </div>
+                </div>
+              ))}
+
+              {/* Recently-finished sync flash card (≤60s) so admins see the
+                  outcome even if they weren't watching the bar mid-run. */}
+              {recentlyFinishedJobs.map((job) => {
+                const ok = job.status === "completed";
+                return (
+                  <div
+                    key={job.id}
+                    className={`flex items-start gap-2.5 px-4 py-2.5 border-b ${
+                      ok
+                        ? "bg-emerald-500/8 border-emerald-500/15"
+                        : "bg-red-500/8 border-red-500/15"
+                    }`}
+                  >
+                    <div className={`h-7 w-7 rounded-lg flex items-center justify-center shrink-0 ${
+                      ok ? "bg-emerald-500/15" : "bg-red-500/15"
+                    }`}>
+                      {ok ? (
+                        <Check className="h-3.5 w-3.5 text-emerald-600" />
+                      ) : (
+                        <XCircle className="h-3.5 w-3.5 text-red-600" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-xs font-medium ${
+                        ok ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400"
+                      }`}>
+                        {job.label} {ok ? "completed" : "failed"}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">
+                        {ok ? job.message : (job.error ?? job.message ?? "Sync failed")}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+
               {/* Alert summary banner */}
               {alerts && totalAlerts > 0 && (
                 <Link
@@ -282,7 +413,10 @@ export function TopBar({ user }: TopBarProps) {
 
               {/* List */}
               <div className="max-h-[400px] overflow-y-auto">
-                {notifications.length === 0 && totalAlerts === 0 && !setupIncomplete ? (
+                {notifications.length === 0 &&
+                totalAlerts === 0 &&
+                !setupIncomplete &&
+                syncJobs.length === 0 ? (
                   <div className="px-4 py-8 text-center text-sm text-muted-foreground">
                     No notifications yet
                   </div>

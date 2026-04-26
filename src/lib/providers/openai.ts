@@ -3,6 +3,27 @@ import { ProviderAdapter, ProviderFetchResult, ProviderSampleResult, RawSampleRo
 
 const API_BASE = "https://api.openai.com/v1/organization";
 
+/**
+ * Bucket width for the OpenAI Usage Admin API.
+ *
+ * IMPORTANT — this is NOT the sync interval. The sync interval (every 6h,
+ * 12h, 24h, …) decides how often we *call* OpenAI. The bucket width decides
+ * how OpenAI groups the data it returns: each row is stamped to the start
+ * of its bucket, so finer buckets ⇒ finer per-record dates.
+ *
+ * OpenAI only supports `1m`, `1h`, `1d`. We use `1h`:
+ *   - "1d" was misleading — every call in a single UTC day collapsed to one
+ *     row dated to midnight, so dashboards lost intra-day breakdowns even
+ *     when the user synced more often than once a day.
+ *   - "1m" would be wasteful (1,440 rows per group per day for most teams).
+ *   - "1h" gives hour-precise dates and is cheap (≤24 rows / group / day).
+ *
+ * Both the usage endpoint and the cost endpoint MUST use the same bucket
+ * width — `fetchUsage` joins them on `(bucket.start_time, model)`, so if
+ * the buckets don't align the cost-attribution loop produces zeros.
+ */
+const OPENAI_BUCKET_WIDTH = "1h";
+
 interface OpenAIUsageBucket {
   start_time: number;
   end_time: number;
@@ -60,7 +81,7 @@ export const openaiAdapter: ProviderAdapter = {
     try {
       const now = Math.floor(Date.now() / 1000);
       const yesterday = now - 86400;
-      const url = `${API_BASE}/usage/completions?start_time=${yesterday}&end_time=${now}&bucket_width=1d&limit=1`;
+      const url = `${API_BASE}/usage/completions?start_time=${yesterday}&end_time=${now}&bucket_width=${OPENAI_BUCKET_WIDTH}&limit=1`;
       await openAIFetch(url, apiKey);
       return true;
     } catch {
@@ -74,13 +95,18 @@ export const openaiAdapter: ProviderAdapter = {
     const weekAgo = now - 7 * 86400;
 
     try {
-      const url = `${API_BASE}/usage/completions?start_time=${weekAgo}&end_time=${now}&bucket_width=1d&group_by[]=model&group_by[]=user_id&group_by[]=api_key_id&limit=5`;
+      const url = `${API_BASE}/usage/completions?start_time=${weekAgo}&end_time=${now}&bucket_width=${OPENAI_BUCKET_WIDTH}&group_by[]=model&group_by[]=user_id&group_by[]=api_key_id&limit=5`;
       const data = await openAIFetch(url, apiKey);
       for (const bucket of (data.data ?? []) as OpenAIUsageBucket[]) {
         const items = bucket.results ?? bucket.result ?? [];
         for (const result of items) {
+          // Flatten the bucket-level timestamps onto every result row. The
+          // OpenAI Usage API does NOT return per-event timestamps — the
+          // bucket boundary IS the date. Without this flattening the
+          // mapping UI would offer no way to populate the `date` field.
           rows.push({
             start_time: bucket.start_time,
+            end_time: bucket.end_time,
             ...result,
           } as RawSampleRow);
         }
@@ -88,7 +114,7 @@ export const openaiAdapter: ProviderAdapter = {
     } catch { /* usage endpoint may not be available */ }
 
     try {
-      const url = `${API_BASE}/costs?start_time=${weekAgo}&end_time=${now}&bucket_width=1d&group_by[]=line_item&limit=5`;
+      const url = `${API_BASE}/costs?start_time=${weekAgo}&end_time=${now}&bucket_width=${OPENAI_BUCKET_WIDTH}&group_by[]=line_item&limit=5`;
       const costData = await openAIFetch(url, apiKey);
       for (const bucket of (costData.data ?? []) as OpenAICostBucket[]) {
         const items = bucket.results ?? bucket.result ?? [];
@@ -125,7 +151,7 @@ export const openaiAdapter: ProviderAdapter = {
     let hasMore = true;
 
     while (hasMore) {
-      let url = `${API_BASE}/usage/completions?start_time=${startUnix}&end_time=${endUnix}&bucket_width=1d&group_by[]=model&group_by[]=user_id&group_by[]=api_key_id`;
+      let url = `${API_BASE}/usage/completions?start_time=${startUnix}&end_time=${endUnix}&bucket_width=${OPENAI_BUCKET_WIDTH}&group_by[]=model&group_by[]=user_id&group_by[]=api_key_id`;
       if (page) url += `&page=${page}`;
 
       const data = await openAIFetch(url, apiKey);
@@ -178,7 +204,7 @@ export const openaiAdapter: ProviderAdapter = {
       let costHasMore = true;
 
       while (costHasMore) {
-        let url = `${API_BASE}/costs?start_time=${startUnix}&end_time=${endUnix}&bucket_width=1d&group_by[]=line_item`;
+        let url = `${API_BASE}/costs?start_time=${startUnix}&end_time=${endUnix}&bucket_width=${OPENAI_BUCKET_WIDTH}&group_by[]=line_item`;
         if (costPage) url += `&page=${costPage}`;
 
         const costData = await openAIFetch(url, apiKey);

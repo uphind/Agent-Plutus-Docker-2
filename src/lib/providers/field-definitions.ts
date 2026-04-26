@@ -178,7 +178,16 @@ export const ANTHROPIC_ANALYTICS_DEFAULTS: DefaultMapping[] = [
 // OpenAI source fields
 // ---------------------------------------------------------------------------
 
+// OpenAI's Usage Admin API returns *bucketed* data — each bucket has a
+// `start_time` / `end_time` (Unix seconds) and an inner `results[]` array of
+// per-key metrics. The metrics carry no per-event timestamp; the bucket
+// boundary IS the date. The adapter in `providers/openai.ts` flattens
+// `start_time` onto every row before yielding it, which is why we expose
+// it here as a top-level mappable source field — this is the field that
+// gets mapped to `date` in the normalized record.
 export const OPENAI_SOURCE_FIELDS: FieldDef[] = [
+  { key: "start_time",           label: "start_time",           description: "Hourly bucket start (Unix seconds). Map this to `date` — every record gets stamped to the start of its hour, independent of sync interval." },
+  { key: "end_time",             label: "end_time",             description: "Hourly bucket end (Unix seconds)." },
   { key: "model",                label: "model",                description: "Model name (e.g. gpt-4o)" },
   { key: "user_id",              label: "user_id",              description: "OpenAI user identifier" },
   { key: "api_key_id",           label: "api_key_id",           description: "API key identifier" },
@@ -195,6 +204,7 @@ export const OPENAI_SOURCE_FIELDS: FieldDef[] = [
 ];
 
 export const OPENAI_DEFAULTS: DefaultMapping[] = [
+  { sourceField: "start_time",          targetField: "date" },
   { sourceField: "user_id",             targetField: "userRef" },
   { sourceField: "model",               targetField: "model" },
   { sourceField: "input_tokens",        targetField: "inputTokens" },

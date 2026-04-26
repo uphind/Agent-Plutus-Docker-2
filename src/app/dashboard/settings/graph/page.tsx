@@ -66,6 +66,13 @@ export function DirectorySyncContent() {
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ total: number; created: number; updated: number } | null>(null);
+  const [syncProgress, setSyncProgress] = useState<{
+    progress: number;
+    processed: number;
+    total: number;
+    message: string | null;
+  } | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [isConfigured, setIsConfigured] = useState(false);
   const [loadingConfig, setLoadingConfig] = useState(true);
 
@@ -295,14 +302,68 @@ export function DirectorySyncContent() {
   const handleSync = async () => {
     setSyncing(true);
     setSyncResult(null);
+    setSyncProgress(null);
+    setSyncError(null);
     try {
       const res = await fetch("/api/v1/graph/sync", { method: "POST" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setSyncResult({ total: data.total, created: data.created, updated: data.updated });
-      setLastDirectorySync(new Date().toISOString());
-    } catch {
-      // silently fail
+      if (!res.ok) throw new Error(data.error ?? "Sync failed to start");
+
+      const jobId = data.jobId as string | undefined;
+      if (!jobId) {
+        // Legacy synchronous response — fall back to old behaviour.
+        setSyncResult({ total: data.total, created: data.created, updated: data.updated });
+        setLastDirectorySync(new Date().toISOString());
+        return;
+      }
+
+      // Poll the SyncJob row until we hit a terminal state. The bell icon
+      // also surfaces this same data — having it inline here just spares
+      // the user from opening the dropdown to know the sync's still going.
+      const pollInterval = 1500;
+      const maxWaitMs = 30 * 60 * 1000;
+      const start = Date.now();
+
+      while (Date.now() - start < maxWaitMs) {
+        const status = await api.getActiveSyncJobs();
+        type StatusJob = {
+          id: string;
+          status: string;
+          progress: number;
+          processed: number;
+          total: number;
+          message: string | null;
+          error: string | null;
+        };
+        const job = ((status.jobs ?? []) as StatusJob[]).find((j) => j.id === jobId);
+
+        if (!job) {
+          // Already aged out of the active window — assume success and stop.
+          setLastDirectorySync(new Date().toISOString());
+          break;
+        }
+
+        setSyncProgress({
+          progress: job.progress,
+          processed: job.processed,
+          total: job.total,
+          message: job.message,
+        });
+
+        if (job.status === "completed") {
+          setSyncResult({ total: job.total, created: 0, updated: 0 });
+          setLastDirectorySync(new Date().toISOString());
+          break;
+        }
+        if (job.status === "failed") {
+          setSyncError(job.error ?? job.message ?? "Sync failed");
+          break;
+        }
+
+        await new Promise((r) => setTimeout(r, pollInterval));
+      }
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : "Sync failed");
     } finally {
       setSyncing(false);
     }
@@ -403,10 +464,43 @@ export function DirectorySyncContent() {
                 <Button onClick={handleSync} disabled={syncing}>
                   {syncing ? "Syncing..." : "Sync Now"}
                 </Button>
-                {syncResult && (
+                {syncing && syncProgress && (
+                  <div className="rounded-lg border border-brand/30 bg-brand/[0.06] p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-medium text-brand">
+                        {syncProgress.message ?? "Working…"}
+                      </p>
+                      <span className="text-xs font-semibold text-brand tabular-nums">
+                        {syncProgress.progress}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full rounded-full bg-brand/15 overflow-hidden">
+                      <div
+                        className="h-full bg-brand transition-all duration-500"
+                        style={{ width: `${Math.max(2, syncProgress.progress)}%` }}
+                      />
+                    </div>
+                    {syncProgress.total > 0 && (
+                      <p className="text-[10px] text-muted-foreground">
+                        {syncProgress.processed.toLocaleString()} / {syncProgress.total.toLocaleString()} users
+                      </p>
+                    )}
+                  </div>
+                )}
+                {syncError && (
+                  <div className="rounded-lg border border-red-200 bg-red-50/50 p-3">
+                    <p className="text-xs font-medium text-red-700 whitespace-pre-line">
+                      {syncError}
+                    </p>
+                  </div>
+                )}
+                {syncResult && !syncing && (
                   <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
                     <p className="text-xs font-medium text-emerald-700">
-                      Sync complete: {syncResult.total} users processed ({syncResult.created} created, {syncResult.updated} updated)
+                      Sync complete: {syncResult.total} users processed
+                      {syncResult.created || syncResult.updated
+                        ? ` (${syncResult.created} created, ${syncResult.updated} updated)`
+                        : ""}
                     </p>
                   </div>
                 )}
