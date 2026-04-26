@@ -4,7 +4,7 @@
 # =============================================================================
 # Usage on a fresh Ubuntu/Debian server:
 #
-#   curl -sSL https://raw.githubusercontent.com/uphind/Agent-Plutus-Docker-2/main/install.sh | bash
+#   curl -sSL https://raw.githubusercontent.com/uphind/Agent-Plutus-Production/main/install.sh | bash
 #
 # Or after cloning:
 #
@@ -22,8 +22,8 @@
 
 set -euo pipefail
 
-REPO_URL="https://github.com/uphind/Agent-Plutus-Docker-2.git"
-INSTALL_DIR="${INSTALL_DIR:-/opt/agent-plutus-docker-2}"
+REPO_URL="https://github.com/uphind/Agent-Plutus-Production.git"
+INSTALL_DIR="${INSTALL_DIR:-/opt/agent-plutus-production}"
 LOG_FILE="/tmp/agent-plutus-install.log"
 
 # Colors

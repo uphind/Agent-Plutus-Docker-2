@@ -1,6 +1,7 @@
 import cron, { type ScheduledTask } from "node-cron";
 import { prisma } from "@/lib/db";
 import { syncAllProviders, syncDirectory, relinkOrphanedRecords } from "./sync-engine";
+import { dispatchForOrg } from "@/lib/alerts/dispatch";
 
 let scheduledTask: ScheduledTask | null = null;
 
@@ -77,6 +78,18 @@ async function tick() {
           console.error(`[Scheduler] Relink error (${org.name}):`, err);
         }
       }
+
+      // Alert evaluation + dispatch (every tick; rule throttles handle dedupe)
+      try {
+        const summary = await dispatchForOrg(org.id);
+        if (summary.attempts > 0) {
+          console.log(
+            `[Scheduler] Alerts (${org.name}): ${summary.sent} sent, ${summary.failed} failed, ${summary.suppressed} suppressed`,
+          );
+        }
+      } catch (err) {
+        console.error(`[Scheduler] Alert dispatch error (${org.name}):`, err);
+      }
     }
   } catch (error) {
     console.error("[Scheduler] Fatal error:", error);
@@ -87,8 +100,8 @@ export async function startSyncScheduler() {
   if (scheduledTask) {
     scheduledTask.stop();
   }
-  scheduledTask = cron.schedule("0 * * * *", tick);
-  console.log("[Scheduler] Started (hourly tick)");
+  scheduledTask = cron.schedule("*/15 * * * *", tick);
+  console.log("[Scheduler] Started (15-minute tick)");
 }
 
 export async function restartSyncScheduler() {

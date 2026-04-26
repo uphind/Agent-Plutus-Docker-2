@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { encodeJwt } from "@/auth";
 import { getSamlClient } from "@/lib/saml";
+import { sanitizeCallbackUrl } from "@/lib/safe-redirect";
 
 export async function POST(request: NextRequest) {
   const saml = getSamlClient();
@@ -11,6 +12,8 @@ export async function POST(request: NextRequest) {
 
   const formData = await request.formData();
   const samlResponse = formData.get("SAMLResponse") as string;
+  const relayState = formData.get("RelayState");
+  const callbackUrl = sanitizeCallbackUrl(typeof relayState === "string" ? relayState : null) ?? "/dashboard";
   if (!samlResponse) {
     return NextResponse.json({ error: "Missing SAMLResponse" }, { status: 400 });
   }
@@ -62,7 +65,7 @@ export async function POST(request: NextRequest) {
     });
 
     const baseUrl = process.env.AUTH_URL || "https://localhost";
-    return NextResponse.redirect(`${baseUrl}/dashboard`);
+    return NextResponse.redirect(`${baseUrl}${callbackUrl}`);
   } catch (err) {
     console.error("[SAML ACS] Validation failed:", err);
     const baseUrl = process.env.AUTH_URL || "https://localhost";

@@ -87,6 +87,7 @@ export function LoginClient({ ssoProvider, callbackUrl, error, signInAction }: L
 
             {ssoProvider === "saml" ? (
               <button
+                type="button"
                 onClick={handleSAMLSignIn}
                 className="w-full flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-white transition-colors hover:opacity-90"
                 style={{ backgroundColor: "#1616e7" }}

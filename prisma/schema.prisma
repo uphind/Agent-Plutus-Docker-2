@@ -34,6 +34,11 @@ model Organization {
   fieldMappings       FieldMapping[]
   aiToolsConfig       AiToolsConfig?
   aiUsageLogs         AiUsageLog[]
+  alertChannels       AlertChannel[]
+  alertRules          AlertRule[]
+  alertDeliveries     AlertDelivery[]
+  slackInstallation   SlackInstallation?
+  slackOAuthSettings  SlackOAuthSettings?
 
   @@map("organizations")
 }
@@ -347,4 +352,125 @@ model AiUsageLog {
 
   @@index([orgId, source, createdAt])
   @@map("ai_usage_logs")
+}
+
+enum AlertChannelKind {
+  email_smtp
+  slack_webhook
+  slack_bot
+}
+
+enum AlertTriggerKind {
+  over_budget
+  budget_warning
+  anomaly
+  inactive_user
+  cost_spike
+  no_budget
+  high_cost_model
+  underutilized
+  sync_failure
+  daily_digest
+  weekly_digest
+}
+
+/// Where outbound alerts get sent. `config` stores adapter-specific JSON
+/// (encrypted SMTP creds, webhook URL, slack channel id). Bot tokens live
+/// in `SlackInstallation`, not here.
+model AlertChannel {
+  id              String           @id @default(uuid())
+  orgId           String           @map("org_id")
+  kind            AlertChannelKind
+  name            String
+  config          Json
+  isActive        Boolean          @default(true) @map("is_active")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  organization    Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("alert_channels")
+}
+
+/// `recipients` is a JSON array of `{ kind: AlertRecipientKind, value?: string }`.
+/// kinds: static_emails | org_admins | ad_users | ad_department | ad_team |
+///        entity_owner | slack_channel | slack_user_email
+/// `filter` is JSON like { departmentIds?: string[], teamIds?: string[],
+///   providers?: string[], thresholdPct?: number }
+model AlertRule {
+  id              String             @id @default(uuid())
+  orgId           String             @map("org_id")
+  name            String
+  trigger         AlertTriggerKind
+  filter          Json               @default("{}")
+  channelIds      String[]           @map("channel_ids")
+  recipients      Json               @default("[]")
+  throttleHours   Int                @default(24) @map("throttle_hours")
+  muteUntil       DateTime?          @map("mute_until")
+  isActive        Boolean            @default(true) @map("is_active")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  organization    Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, trigger])
+  @@map("alert_rules")
+}
+
+/// Outbound audit log; doubles as the dedupe table for throttle windows.
+model AlertDelivery {
+  id              String             @id @default(uuid())
+  orgId           String             @map("org_id")
+  ruleId          String?            @map("rule_id")
+  channelId       String?            @map("channel_id")
+  trigger         AlertTriggerKind
+  entityType      String?            @map("entity_type")
+  entityId        String?            @map("entity_id")
+  recipient       String
+  status          String
+  error           String?
+  createdAt       DateTime           @default(now()) @map("created_at")
+
+  organization    Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, ruleId, trigger, entityId, createdAt])
+  @@index([orgId, createdAt])
+  @@map("alert_deliveries")
+}
+
+/// Per-org Slack OAuth app credentials, configured from the UI ("Setup Slack"
+/// button). Replaces the previous SLACK_CLIENT_ID / SLACK_CLIENT_SECRET /
+/// SLACK_REDIRECT_URI env vars (env vars still work as a fallback when the row
+/// is absent, so existing deployments keep working).
+model SlackOAuthSettings {
+  id                    String   @id @default(uuid())
+  orgId                 String   @unique @map("org_id")
+  clientId              String   @map("client_id")
+  clientSecretEncrypted String   @map("client_secret_encrypted")
+  redirectUri           String   @map("redirect_uri")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  organization          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("slack_oauth_settings")
+}
+
+/// One Slack workspace per org. `botTokenEncrypted` is xoxb- token from
+/// the OAuth v2 flow, encrypted via lib/encryption.ts.
+model SlackInstallation {
+  id                  String   @id @default(uuid())
+  orgId               String   @unique @map("org_id")
+  teamId              String   @map("team_id")
+  teamName            String   @map("team_name")
+  botUserId           String   @map("bot_user_id")
+  botTokenEncrypted   String   @map("bot_token_encrypted")
+  scopes              String
+  installedAt         DateTime @default(now()) @map("installed_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  organization        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("slack_installations")
 }

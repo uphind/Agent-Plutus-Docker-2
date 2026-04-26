@@ -1,0 +1,46 @@
+# Slack App manifest for Agent Plutus alerts.
+#
+# How to use:
+#   1. Go to https://api.slack.com/apps
+#   2. Click "Create New App" -> "From an app manifest"
+#   3. Pick the workspace you'll use for development, paste this YAML, click Next.
+#   4. After creation, open "Basic Information" -> copy the Client ID + Client Secret.
+#   5. Set them in the server env (alongside SLACK_REDIRECT_URI):
+#         SLACK_CLIENT_ID=...
+#         SLACK_CLIENT_SECRET=...
+#         SLACK_REDIRECT_URI=https://<your-domain>/api/v1/integrations/slack/oauth/callback
+#   6. Restart the app. The "Add to Slack" button on Settings -> Alerts will now work.
+#
+# To distribute to other workspaces (multi-tenant), submit the app for review on
+# api.slack.com or enable "Allow installs to any Slack workspace" once you've
+# enabled distribution.
+display_information:
+  name: Agent Plutus Alerts
+  description: Sends AI cost alerts to Slack channels and direct messages.
+  background_color: "#0f172a"
+  long_description: |
+    Agent Plutus monitors AI provider spend across your org and sends alerts to
+    Slack when departments cross budgets, individual users spike costs, or
+    expensive models are being used. Alerts can be routed to any channel the
+    bot is in, or DM'd directly to the relevant person via their email address.
+features:
+  bot_user:
+    display_name: Agent Plutus
+    always_online: true
+oauth_config:
+  redirect_urls:
+    # Replace with your production URL — match SLACK_REDIRECT_URI exactly.
+    - https://localhost:3000/api/v1/integrations/slack/oauth/callback
+  scopes:
+    bot:
+      - chat:write
+      - chat:write.public
+      - channels:read
+      - groups:read
+      - users:read
+      - users:read.email
+      - im:write
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

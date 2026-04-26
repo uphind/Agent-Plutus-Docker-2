@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import Link from "next/link";
 import { Header } from "@/components/layout/header";
 import { Tabs } from "@/components/ui/tabs";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -14,6 +13,7 @@ import { LlmModelSelect } from "@/components/llm-model-select";
 import { useTerminology } from "@/lib/terminology";
 import { DirectorySyncContent } from "@/app/dashboard/settings/graph/page";
 import { ProvidersContent } from "@/app/dashboard/providers/page";
+import { AlertsSettings } from "@/components/settings/alerts-settings";
 import { api } from "@/lib/dashboard-api";
 
 const LLM_PROVIDER_OPTIONS = [
@@ -59,6 +59,7 @@ const SETTINGS_TABS = [
   { id: "providers", label: "Providers" },
   { id: "terminology", label: "Terminology" },
   { id: "ai-assistant", label: "AI Assistant" },
+  { id: "alerts", label: "Alerts" },
   { id: "directory-sync", label: "Directory Sync" },
 ];
 
@@ -194,15 +195,6 @@ function AiAssistantSettings() {
 
   return (
     <div className="space-y-6">
-    <div className="flex items-center justify-end -mb-2">
-      <Link
-        href="/dashboard/onboarding"
-        className="text-xs text-brand hover:text-brand-light font-medium inline-flex items-center gap-1.5"
-      >
-        <Sparkles className="h-3 w-3" />
-        Re-run onboarding wizard
-      </Link>
-    </div>
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
@@ -599,6 +591,7 @@ export default function SettingsPage() {
       {activeTab === "providers" && <ProvidersContent showHeader={false} />}
       {activeTab === "terminology" && <TerminologySettings />}
       {activeTab === "ai-assistant" && <AiAssistantSettings />}
+      {activeTab === "alerts" && <AlertsSettings />}
       {activeTab === "directory-sync" && <DirectorySyncContent />}
     </div>
   );

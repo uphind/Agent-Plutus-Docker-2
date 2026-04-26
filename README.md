@@ -7,13 +7,13 @@ Enterprise AI usage analytics platform. Connects to your AI providers (Anthropic
 On a fresh Ubuntu/Debian server:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/uphind/Agent-Plutus-Docker-2/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/uphind/Agent-Plutus-Production/main/install.sh | bash
 ```
 
 That's it. The installer will:
 
 1. Install Docker if missing
-2. Clone this repo to `/opt/agent-plutus-docker-2`
+2. Clone this repo to `/opt/agent-plutus-production`
 3. Auto-generate all secrets (`ENCRYPTION_KEY`, `AUTH_SECRET`, `POSTGRES_PASSWORD`) — you never touch them
 4. Prompt for your domain, HTTP/HTTPS choice, and SSO settings
 5. Generate self-signed TLS certs if needed
@@ -25,7 +25,7 @@ Total time: ~3-5 minutes (mostly the Docker build).
 ### Already cloned?
 
 ```bash
-git clone https://github.com/uphind/Agent-Plutus-Docker-2 && cd Agent-Plutus-Docker-2
+git clone https://github.com/uphind/Agent-Plutus-Production && cd Agent-Plutus-Production
 ./install.sh
 ```
 
@@ -85,7 +85,7 @@ docker compose version
 ### 2. Clone and configure
 
 ```bash
-git clone https://github.com/uphind/Agent-Plutus-Docker-2 && cd Agent-Plutus-Docker-2
+git clone https://github.com/uphind/Agent-Plutus-Production && cd Agent-Plutus-Production
 cp .env.example .env
 ```
 
@@ -476,6 +476,82 @@ API routes require the `X-API-Key` header with the organization's API key.
 - **GET** `/api/v1/notifications` — List notifications
 - **POST** `/api/v1/notifications/:id/read` — Mark notification as read
 - **POST** `/api/v1/notifications/read-all` — Mark all as read
+
+### Alerts (Channels, Rules, Slack)
+
+- **GET / POST** `/api/v1/alerts/channels` — List / create email + Slack channels
+- **PATCH / DELETE** `/api/v1/alerts/channels/:id` — Update / remove a channel
+- **POST** `/api/v1/alerts/channels/:id/test` — Send a synthetic alert through a channel (body: `{ "testRecipient": "you@example.com" }` for SMTP / Slack DM)
+- **GET / POST** `/api/v1/alerts/rules` — List / create rules
+- **PATCH / DELETE** `/api/v1/alerts/rules/:id` — Update / remove a rule
+- **POST** `/api/v1/alerts/rules/:id/preview` — Dry-run a rule (returns matched alerts and resolved recipient counts)
+- **GET** `/api/v1/alerts/deliveries?limit=50` — Outbound audit log
+- **GET** `/api/v1/integrations/slack` — Slack workspace install status
+- **GET** `/api/v1/integrations/slack/oauth/start` — Begin OAuth (redirects to Slack)
+- **GET** `/api/v1/integrations/slack/oauth/callback` — Slack OAuth callback (do not call directly)
+- **POST** `/api/v1/integrations/slack/oauth/disconnect` — Remove the Slack installation
+- **GET** `/api/v1/integrations/slack/channels` — List channels visible to the bot (used by the channel-picker)
+
+---
+
+## Alerts setup
+
+The Settings → Alerts tab lets you wire up two delivery channels and a rules
+engine on top of the existing alert detection (`/api/v1/alerts`).
+
+### Email (SMTP)
+
+Customer-paste SMTP only (no built-in transactional sender). For each channel,
+provide:
+
+- Host, port, TLS toggle
+- Username + password (encrypted at rest with `ENCRYPTION_KEY`)
+- From address + optional From name
+
+Click "Send test" with your own email in the recipient field to verify the
+transport before turning rules on.
+
+### Slack
+
+Click **Setup Slack** on the Alerts tab. Two modes are supported and can be
+combined:
+
+1. **Incoming Webhook** — paste a `https://hooks.slack.com/...` URL per channel.
+   No app install required.
+2. **OAuth bot** — three guided steps inside the modal:
+   1. Paste your Slack App credentials (Client ID, Client Secret, Redirect URI).
+      They are stored encrypted in the database (`slack_oauth_settings` table).
+   2. Click **Add to Slack** to authorize the bot in your workspace.
+   3. Pick the default channel (or DM-by-email mode).
+
+To get the Slack App credentials, create an app from `docs/slack-app-manifest.yaml`
+(Slack → Your Apps → Create New App → From an app manifest), then copy the
+Client ID and Client Secret from **Basic Information → App Credentials**. The
+Redirect URI defaults to `<your-domain>/api/v1/integrations/slack/oauth/callback`
+and must match the URL listed under **OAuth & Permissions → Redirect URLs**.
+
+The legacy env vars `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`,
+`SLACK_REDIRECT_URI`, `APP_BASE_URL` still work as a fallback when the database
+row is absent (useful for local dev).
+
+### Rules
+
+A rule is `trigger + filter + channels + recipients + throttleHours`. Recipient
+kinds:
+
+- `static_emails` — comma-separated list
+- `ad_department` / `ad_team` — every active user in the chosen AD entity
+- `ad_users` — explicit OrgUser ids
+- `entity_owner` — the user the alert is *about* (for "warn me when I cross
+  budget" flows)
+- `slack_channel` — channel id override for slack_bot channels
+- `slack_user_email` — explicit Slack DM by email
+
+Throttling is enforced by `AlertDelivery`: a rule won't re-fire for the same
+`(rule, trigger, entityId, channel, recipient)` within `throttleHours`.
+
+The scheduler ticks every 15 minutes and dispatches per org. Use the "Preview"
+button on a rule to dry-run it before activating.
 
 ---
 
